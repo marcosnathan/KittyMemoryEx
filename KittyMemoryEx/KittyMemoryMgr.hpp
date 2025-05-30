@@ -9,6 +9,7 @@
 #include "KittyScanner.hpp"
 #include "KittyTrace.hpp"
 #include "KittyArm64.hpp"
+#include "KittyPtrValidator.hpp"
 
 using KittyMemoryEx::ProcMap;
 
