@@ -428,7 +428,7 @@ ElfScanner::ElfScanner(IKittyMemOp *pMem, uintptr_t elfBase)
 
 std::vector<std::pair<uintptr_t, std::string>> ElfScanner::symbols()
 {
-    if (!_symbols_init && isValid() && _stringTable > _symbolTable)
+    if (!_symbols_init && isValid())
     {
         _symbols_init = true;
         auto get_sym_address = [&](const ElfW_(Sym) * sym_ent) -> uintptr_t
@@ -436,7 +436,8 @@ std::vector<std::pair<uintptr_t, std::string>> ElfScanner::symbols()
             return sym_ent->st_value < _loadBias ? _loadBias + sym_ent->st_value : sym_ent->st_value;
         };
 
-        std::vector<char> symbol_table_buff(_stringTable - _symbolTable, 0);
+        size_t symtab_sz = ((_stringTable > _symbolTable) ? (_stringTable - _symbolTable) : (_symbolTable - _stringTable));
+        std::vector<char> symbol_table_buff(symtab_sz, 0);
         std::vector<char> string_table_buff(_strsz, 0);
 
         if (_pMem->Read(_symbolTable, symbol_table_buff.data(), symbol_table_buff.size()) &&
