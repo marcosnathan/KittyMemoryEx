@@ -39,6 +39,11 @@ public:
     MemoryBackupMgr memBackup;
     KittyScannerMgr memScanner;
     ElfScannerMgr elfScanner;
+
+#ifdef __ANDROID__
+    LinkerScanner linkerScanner;
+#endif
+
     KittyTraceMgr trace;
 
     KittyMemoryMgr() : _init(false), _pid(0), _eMemOp(EK_MEM_OP_NONE) {}
@@ -86,17 +91,24 @@ public:
     /**
      * Find in-memory loaded ELF with name
      */
-    ElfScanner getMemElf(const std::string &elfName) const;
+    ElfScanner findMemElf(const std::string &elfName) const;
 
     /**
      * Find in-memory loaded ELF with name in zip
      */
-    ElfScanner getMemElfInZip(const std::string &zip, const std::string &elfName) const;
+    ElfScanner findMemElfInZip(const std::string &zip, const std::string &elfName) const;
+
+#ifdef __ANDROID__
+    /**
+     * Find in-memory loaded ELF from linker with name
+     */
+    ElfScanner findMemElfFromLinker(const std::string &elfName) const;
+#endif
 
     /**
      * /proc/[pid]/exe
      */
-    ElfScanner getMemElfExe() const;
+    ElfScanner findMemElfProgram() const;
 
     /**
      * Find remote address of local symbol.
@@ -118,5 +130,5 @@ public:
     /**
      * Dump remote memory loaded ELF
      */
-    bool dumpMemELF(uintptr_t elfBase, const std::string &destination) const;
+    bool dumpMemELF(const ElfScanner &elf, const std::string &destination) const;
 };

@@ -26,16 +26,20 @@
 
 #include <elf.h>
 #ifdef __LP64__
-#define ELFCLASS_BITS_ 64
-#define ELF_EICLASS_ 2
-#define ElfW_(x) Elf64_##x
-#define ELFW_(x) ELF64_##x
+#define KT_ELFCLASS_BITS 64
+#define KT_ELF_EICLASS 2
+#define KT_ElfW(x) Elf64_##x
+#define KT_ELFW(x) ELF64_##x
 #else
-#define ELFCLASS_BITS_ 32
-#define ELF_EICLASS_ 1
-#define ElfW_(x) Elf32_##x
-#define ELFW_(x) ELF32_##x
+#define KT_ELFCLASS_BITS 32
+#define KT_ELF_EICLASS 1
+#define KT_ElfW(x) Elf32_##x
+#define KT_ELFW(x) ELF32_##x
 #endif
+#define KT_ELF_ST_BIND(val) (((unsigned char) (val)) >> 4)
+#define KT_ELF_ST_TYPE(val)	((val) & 0xf)
+#define KT_ELF_ST_INFO(bind, type) (((bind) << 4) + ((type) & 0xf))
+#define KT_ELF_ST_VISIBILITY(o)	((o) & 0x03)
 
 #define KT_PAGE_SIZE (sysconf(_SC_PAGE_SIZE))
 #define KT_PAGE_START(x) (uintptr_t(x) & ~(KT_PAGE_SIZE - 1))

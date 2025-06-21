@@ -44,7 +44,7 @@ int main(int argc, char *args[])
     {
         sleep(1);
         // get loaded elf
-        g_libcElf = kittyMemMgr.getMemElf("libc.so");
+        g_libcElf = kittyMemMgr.findMemElf("libc.so");
     } while (!g_libcElf.isValid());
     
     uintptr_t libcBase = g_libcElf.base();

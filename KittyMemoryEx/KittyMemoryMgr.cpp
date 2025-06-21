@@ -69,8 +69,16 @@ bool KittyMemoryMgr::initialize(pid_t pid, EKittyMemOP eMemOp, bool initMemPatch
     elfScanner = ElfScannerMgr(_pMemOp.get());
 
 #ifdef __ANDROID__
+#ifdef __LP64__
+    linkerScanner = LinkerScanner(_pMemOp.get(), findMemElf("/linker64").base());
+#else
+    linkerScanner = LinkerScanner(_pMemOp.get(), findMemElf("/linker").base());
+#endif
+#endif
+
+#ifdef __ANDROID__
     // refs https://fadeevab.com/shared-library-injection-on-android-8/
-    uintptr_t defaultCaller = getMemElf("libRS.so").base();
+    uintptr_t defaultCaller = findMemElf("libRS.so").base();
 #else
     uintptr_t defaultCaller = 0;
 #endif
@@ -120,7 +128,7 @@ bool KittyMemoryMgr::isValidELF(uintptr_t elfBase) const
     return readMem(elfBase, magic, sizeof(magic)) && memcmp(magic, "\177ELF", 4) == 0;
 }
 
-ElfScanner KittyMemoryMgr::getMemElf(const std::string &elfName) const
+ElfScanner KittyMemoryMgr::findMemElf(const std::string &elfName) const
 {
     ElfScanner ret{};
 
@@ -165,7 +173,7 @@ ElfScanner KittyMemoryMgr::getMemElf(const std::string &elfName) const
     return ret;
 }
 
-ElfScanner KittyMemoryMgr::getMemElfInZip(const std::string& zip, const std::string& elfName) const
+ElfScanner KittyMemoryMgr::findMemElfInZip(const std::string& zip, const std::string& elfName) const
 {
     // Comparing ELF data offset in zip to the mapped memory offset
 
@@ -213,7 +221,28 @@ ElfScanner KittyMemoryMgr::getMemElfInZip(const std::string& zip, const std::str
     return ret;
 }
 
-ElfScanner KittyMemoryMgr::getMemElfExe() const
+#ifdef __ANDROID__
+    /**
+     * Find in-memory loaded ELF from linker with name
+     */
+    ElfScanner KittyMemoryMgr::findMemElfFromLinker(const std::string &elfName) const
+    {
+        if (linkerScanner.isValid())
+        {
+            const auto solistInfo = linkerScanner.GetSoList();
+            for (const auto &it : solistInfo)
+            {
+                if (KittyUtils::String::EndsWith(it.realpath, elfName))
+                {
+                    return elfScanner.createWithSoInfo(it);
+                }
+            }
+        }
+        return {};
+    }
+#endif
+
+ElfScanner KittyMemoryMgr::findMemElfProgram() const
 {
     if (!isMemValid())
         return {};
@@ -227,7 +256,7 @@ ElfScanner KittyMemoryMgr::getMemElfExe() const
         KITTY_LOGE("Failed to readlink \"%s\", error(%d): %s.", path.c_str(), err, strerror(err));
         return {};
     }
-    return getMemElf(exePath);
+    return findMemElf(exePath);
 }
 
 uintptr_t KittyMemoryMgr::findRemoteOfSymbol(const local_symbol_t &local_sym) const
@@ -240,7 +269,7 @@ uintptr_t KittyMemoryMgr::findRemoteOfSymbol(const local_symbol_t &local_sym) co
 
     l_lib = KittyMemoryEx::getAddressMap(getpid(), local_sym.address);
     if (l_lib.isValid())
-        r_lib = getMemElf(l_lib.pathname);
+        r_lib = findMemElf(l_lib.pathname);
 
     if (!r_lib.isValid())
     {
@@ -275,56 +304,7 @@ bool KittyMemoryMgr::dumpMemRange(uintptr_t start, uintptr_t end, const std::str
         return false;
     }
 
-    KittyIOFile dstFile(destination, O_CREAT | O_WRONLY | O_TRUNC, 0644);
-    dstFile.Delete();
-    if (!dstFile.Open())
-    {
-        KITTY_LOGE("dumpMemRange: Couldn't open destination file %s, error=%s", destination.c_str(), dstFile.lastStrError().c_str());
-        return false;
-    }
-
-    size_t displaySize = (end - start);
-    static const char *units[] = {"B", "KB", "MB", "GB"};
-    int u;
-    for (u = 0; displaySize > 1024; u++)
-        displaySize /= 1024;
-
-    size_t dumpSize = (end - start);
-    void *dmmap = mmap(nullptr, dumpSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (!dmmap)
-    {
-        KITTY_LOGE("dumpMemRange: failed to allocate memory for dump with size %zu%s.", dumpSize, units[u]);
-        return false;
-    }
-
-    KITTY_LOGI("dumpMemRange: Dumping: [ %p - %p | Size: %zu%s ] ...", (void *)start, (void *)end, displaySize, units[u]);
-
-    size_t read_sz = srcFile.Read(start, dmmap, dumpSize);
-    if (!read_sz)
-    {
-        KITTY_LOGE("dumpMemRange: failed to read memory range (%p - %p).", (void *)start, (void *)end);
-        munmap(dmmap, dumpSize);
-        return false;
-    }
-
-    if (read_sz != dumpSize)
-        KITTY_LOGW("dumpMemRange: dump size %zu but bytes read %zu. error=%s.", dumpSize, read_sz, srcFile.lastStrError().c_str());
-
-    ssize_t write_sz = dstFile.Write(0, dmmap, dumpSize);
-    if (write_sz <= 0)
-    {
-        KITTY_LOGE("dumpMemRange: failed to write memory range (%p - %p).", (void *)start, (void *)end);
-        munmap(dmmap, dumpSize);
-        return false;
-    }
-
-    if ((size_t)write_sz != dumpSize)
-        KITTY_LOGW("Dumping memory: dump size %zu but bytes written %zu. error=%s.", dumpSize, write_sz, dstFile.lastStrError().c_str());
-
-    KITTY_LOGI("dumpMemRange: Dumped (%p - %p) at %s.", (void *)start, (void *)end, destination.c_str());
-
-    munmap(dmmap, dumpSize);
-    return true;
+    return srcFile.writeToFile(start, end - start, destination);
 }
 
 bool KittyMemoryMgr::dumpMemFile(const std::string &memFile, const std::string &destination) const
@@ -354,11 +334,10 @@ bool KittyMemoryMgr::dumpMemFile(const std::string &memFile, const std::string &
     return dumpMemRange(firstMap.startAddress, lastEnd, destination);
 }
 
-bool KittyMemoryMgr::dumpMemELF(uintptr_t elfBase, const std::string &destination) const
+bool KittyMemoryMgr::dumpMemELF(const ElfScanner &elf, const std::string &destination) const
 {
-    if (!isMemValid() || !elfBase)
+    if (!isMemValid() || !elf.base() || !elf.loadSize())
         return false;
 
-    ElfScanner elf = elfScanner.createWithBase(elfBase);
-    return elf.isValid() && dumpMemRange(elfBase, elf.end(), destination);
+    return dumpMemRange(elf.base(), elf.end(), destination);
 }
