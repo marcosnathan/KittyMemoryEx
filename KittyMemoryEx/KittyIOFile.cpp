@@ -94,12 +94,12 @@ bool KittyIOFile::readToString(std::string *str)
     }
 
     // incase stat fails to get file size
-    char tmp_buf[4096] = { 0 };
+    std::vector<char> tmp_buf(KT_IO_BUFFER_MAX_SIZE, 0);
     ssize_t n = 0, off = 0;
-    while ((n = Read(off, tmp_buf, 4096)) > 0)
+    while ((n = Read(off, tmp_buf.data(), KT_IO_BUFFER_MAX_SIZE)) > 0)
     {
         off += n;
-        str->append(tmp_buf, n);
+        str->append(tmp_buf.data(), n);
     }
 
     return n != -1;
@@ -120,25 +120,75 @@ bool KittyIOFile::readToBuffer(std::vector<char> *buf)
     }
 
     // incase stat fails to get file size
-    char tmp_buf[4096] = { 0 };
+    std::vector<char> tmp_buf(KT_IO_BUFFER_MAX_SIZE, 0);
     ssize_t n = 0, off = 0;
-    while ((n = Read(off, tmp_buf, 4096)) > 0)
+    while ((n = Read(off, tmp_buf.data(), KT_IO_BUFFER_MAX_SIZE)) > 0)
     {
         off += n;
-        buf->insert(buf->end(), tmp_buf, tmp_buf + n);
+        buf->insert(buf->end(), tmp_buf.data(), tmp_buf.data() + n);
     }
 
     return n != -1;
 }
 
+bool KittyIOFile::writeToFile(uintptr_t offset, size_t len, const std::string &filePath)
+{
+    KittyIOFile of(filePath, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666);
+    of.Delete();
+    if (!of.Open()) return false;
+
+    uintptr_t woff = 0;
+    std::vector<char> buf(KT_IO_BUFFER_MAX_SIZE);
+
+    while (len)
+    {
+        memset(buf.data(), 0, buf.size());
+
+        ssize_t nread = Read(offset, buf.data(), buf.size());
+        if (nread <= 0)
+            break;
+
+        if (of.Write(woff, buf.data(), nread) != nread)
+            break;
+
+        offset += nread;
+        len -= nread;
+        woff += nread;
+    }
+
+    return ssize_t(len) <= 0;
+}
+
 bool KittyIOFile::writeToFile(const std::string &filePath)
 {
-    std::vector<char> buf;
-    if (!readToBuffer(&buf) || buf.empty())
-        return false;
+    ssize_t size = Stat().st_size;
+    if (size)
+    {
+        return writeToFile(0, size, filePath);
+    }
 
     KittyIOFile of(filePath, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666);
-    return of.Open() && size_t(of.Write(0, buf.data(), buf.size())) == buf.size();
+    of.Delete();
+    if (!of.Open()) return false;
+
+    uintptr_t offset = 0;
+    std::vector<char> buf(KT_IO_BUFFER_MAX_SIZE);
+
+    while (true)
+    {
+        memset(buf.data(), 0, buf.size());
+
+        ssize_t nread = Read(offset, buf.data(), buf.size());
+        if (nread <= 0)
+            break;
+
+        if (of.Write(offset, buf.data(), nread) != nread)
+            return false;
+
+        offset += nread;
+    }
+    
+    return true;
 }
 
 bool KittyIOFile::writeToFd(int fd)

@@ -2,6 +2,8 @@
 
 #include "KittyUtils.hpp"
 
+#define KT_IO_BUFFER_MAX_SIZE (1024*1024)
+
 class KittyIOFile
 {
 private:
@@ -61,6 +63,7 @@ public:
     bool readToString(std::string *str);
     bool readToBuffer(std::vector<char> *buf);
 
+    bool writeToFile(uintptr_t offset, size_t len, const std::string &filePath);
     bool writeToFile(const std::string &filePath);
 
     bool writeToFd(int fd);
