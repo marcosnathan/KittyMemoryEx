@@ -22,6 +22,7 @@
 #include <utility>
 #include <map>
 #include <random>
+#include <functional>
 
 #include <elf.h>
 #ifdef __LP64__
@@ -83,6 +84,23 @@
         _rc = (exp);                       \
     } while (_rc == -1 && errno == EINTR); \
     _rc; })
+
+struct zip_entry_info_t
+{
+    std::string name;
+    uintptr_t offset;
+    ssize_t index;
+    uint32_t crc32;
+    bool is_dir;
+    size_t size, comp_size, uncomp_size;
+
+    zip_entry_info_t() : offset(0), index(0), crc32(0), is_dir(false), size(0), comp_size(0), uncomp_size(0)
+    {
+    }
+    zip_entry_info_t(uint32_t crc32, bool is_dir, std::string name, uintptr_t offset, ssize_t index, size_t size, size_t comp_size, size_t uncomp_size) : offset(offset), index(index), crc32(crc32), is_dir(is_dir), size(size), comp_size(comp_size), uncomp_size(uncomp_size)
+    {
+    }
+};
 
 namespace KittyUtils
 {
@@ -195,6 +213,13 @@ namespace KittyUtils
         }
 
         return ss.str();
+    }
+
+    namespace Zip
+    {
+        zip_entry_info_t GetEntryInfoAtOffset(const std::string &zipPath, uintptr_t offset);
+
+        std::pair<void*, size_t> MMapEntryAtOffset(const std::string &zipPath, uintptr_t offset);
     }
 
 }

@@ -1,5 +1,7 @@
 #include "KittyUtils.hpp"
 
+#include "zip/zip.h"
+
 namespace KittyUtils
 {
 
@@ -177,4 +179,71 @@ namespace KittyUtils
         }
     }
 
+    namespace Zip
+    {
+        zip_entry_info_t GetEntryInfoAtOffset(const std::string &zipPath, uintptr_t offset)
+        {
+            zip_entry_info_t ret{};
+
+            struct zip_t *z = zip_open(zipPath.c_str(), 0, 'r');
+            if (!z) return ret;
+
+            int i, n = zip_entries_total(z);
+            for (i = 0; i < n; ++i)
+            {
+                zip_entry_openbyindex(z, i);
+                {
+                    if (offset == zip_entry_data_offset(z))
+                    {
+                        ret.name = zip_entry_name(z);
+                        ret.offset = offset;
+                        ret.index = zip_entry_index(z);
+                        ret.crc32 = zip_entry_crc32(z);
+                        ret.is_dir = zip_entry_isdir(z);
+                        ret.comp_size = zip_entry_comp_size(z);
+                        ret.uncomp_size = zip_entry_uncomp_size(z);
+                        ret.size = zip_entry_size(z);
+                        zip_entry_close(z);
+                        break;
+                    }
+                    zip_entry_close(z);
+                }
+            }
+
+            zip_close(z);
+            return ret;
+        }
+
+        std::pair<void*, size_t> MMapEntryAtOffset(const std::string &zipPath, uintptr_t offset)
+        {
+            std::pair<void*, size_t> ret = {nullptr, 0};
+
+            struct zip_t *z = zip_open(zipPath.c_str(), 0, 'r');
+            if (!z) return ret;
+
+            int i, n = zip_entries_total(z);
+            for (i = 0; i < n; ++i)
+            {
+                zip_entry_openbyindex(z, i);
+                {
+                    unsigned long long entry_offset = zip_entry_data_offset(z);
+                    if (offset == entry_offset)
+                    {
+                        ret.second = zip_entry_size(z);
+                        if (ret.second)
+                        {
+                            ret.first = mmap(nullptr, ret.second, PROT_READ | PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, offset);
+                            zip_entry_noallocread(z, ret.first, ret.second);
+                        }
+                        zip_entry_close(z);
+                        break;
+                    }
+                    zip_entry_close(z);
+                }
+            }
+
+            zip_close(z);
+            return ret;
+        }
+    }
 }
