@@ -222,9 +222,6 @@ ElfScanner KittyMemoryMgr::findMemElfInZip(const std::string& zip, const std::st
 }
 
 #ifdef __ANDROID__
-    /**
-     * Find in-memory loaded ELF from linker with name
-     */
     ElfScanner KittyMemoryMgr::findMemElfFromLinker(const std::string &elfName) const
     {
         if (linkerScanner.isValid())
