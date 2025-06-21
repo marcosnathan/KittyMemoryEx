@@ -100,7 +100,7 @@ public:
 
 #ifdef __ANDROID__
     /**
-     * Find in-memory loaded ELF from linker with name
+     * Find in-memory loaded ELF with name from linker solist
      */
     ElfScanner findMemElfFromLinker(const std::string &elfName) const;
 #endif
