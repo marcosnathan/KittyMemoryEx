@@ -25,6 +25,37 @@ namespace KittyMemoryEx
         return cmdline;
     }
 
+    std::vector<pid_t> getPIDsOf(const std::string &processName)
+    {
+        std::vector<pid_t> pids;
+
+        if (processName.empty())
+            return pids;
+
+        errno = 0;
+        DIR *dir = opendir("/proc/");
+        if (!dir)
+        {
+            KITTY_LOGE("Couldn't open /proc/, error=%s", strerror(errno));
+            return pids;
+        }
+
+        dirent *entry = nullptr;
+        while ((entry = readdir(dir)) != nullptr)
+        {
+            int entry_pid = atoi(entry->d_name);
+            if (entry_pid > 0)
+            {
+                if (processName == getProcessName(entry_pid))
+                {
+                    pids.push_back(entry_pid);
+                }
+            }
+        }
+        closedir(dir);
+        return pids;
+    }
+
     pid_t getProcessID(const std::string &processName)
     {
         if (processName.empty())

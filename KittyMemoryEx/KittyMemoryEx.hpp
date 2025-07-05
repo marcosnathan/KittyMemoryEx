@@ -62,6 +62,11 @@ namespace KittyMemoryEx
   std::string getProcessName(pid_t pid);
 
   /*
+   * find processes ID by matching /proc/[pid]/cmdline
+   */
+  std::vector<pid_t> getPIDsOf(const std::string &processName);
+
+  /*
    * find process ID by matching /proc/[pid]/cmdline
    */
   pid_t getProcessID(const std::string &processName);
