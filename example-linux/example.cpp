@@ -117,7 +117,7 @@ int main(int argc, char *args[])
 
     // dump memory elf
     std::string sodumpPath = dumpFolder + "/libc_dump.so";
-    isDumped = kittyMemMgr.dumpMemELF(libcBase, sodumpPath);
+    isDumped = kittyMemMgr.dumpMemELF(g_libcElf, sodumpPath);
     KITTY_LOGI("libc so dump = %d", isDumped ? 1 : 0);
 
 

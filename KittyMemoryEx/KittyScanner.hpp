@@ -85,7 +85,7 @@ public:
      *
      * @return first found pattern address
      */
-    uintptr_t findIdaPatternFirst(const uintptr_t start, const uintptr_t end, const std::string& pattern);
+    uintptr_t findIdaPatternFirst(const uintptr_t start, const uintptr_t end, const std::string &pattern);
 
     /**
      * Search for data within a memory range and return all results
@@ -159,48 +159,99 @@ protected:
     std::unordered_map<std::string, uintptr_t> _dsymbolsMap;
 
 public:
-    ElfScanner() : _pMem(nullptr), _elfBase(0), _phdr(0), _loads(0), _loadBias(0), _loadSize(0),
-                   _dynamic(0), _stringTable(0), _symbolTable(0), _strsz(0), _syment(0), _headerless(false), _symbols_init(false), _dsymbols_init(false) {}
-    ElfScanner(IKittyMemOp *pMem, uintptr_t elfBase);
+    ElfScanner() : _pMem(nullptr), _elfBase(0), _phdr(0), _loads(0), _loadBias(0), _loadSize(0), _dynamic(0), _stringTable(0), _symbolTable(0), _strsz(0), _syment(0), _headerless(false), _symbols_init(false), _dsymbols_init(false) {}
+
+    ElfScanner(IKittyMemOp *pMem, uintptr_t elfBase, const std::vector<KittyMemoryEx::ProcMap> &maps);
+    ElfScanner(IKittyMemOp *pMem, uintptr_t elfBase) : ElfScanner(pMem, elfBase, (pMem ? KittyMemoryEx::getAllMaps(pMem->processID()) : std::vector<KittyMemoryEx::ProcMap>()))
+    {
+    }
 
 #ifdef __ANDROID__
-    ElfScanner(IKittyMemOp *pMem, const soinfo_info_t &soinfo);
+    ElfScanner(IKittyMemOp *pMem, const soinfo_info_t &soinfo, const std::vector<KittyMemoryEx::ProcMap> &maps);
+    ElfScanner(IKittyMemOp *pMem, const soinfo_info_t &soinfo) : ElfScanner(pMem, soinfo, (pMem ? KittyMemoryEx::getAllMaps(pMem->processID()) : std::vector<KittyMemoryEx::ProcMap>()))
+    {
+    }
 #endif
 
     inline bool isValid() const
     {
-        return _elfBase && _loadSize && _phdr && _dynamic && _loadBias && _stringTable && _symbolTable;
+        return _elfBase && _loadSize && _phdr && _loadBias;
     }
 
-    inline bool isHeaderless() const { return _headerless; }
+    inline bool isHeaderless() const
+    {
+        return _headerless;
+    }
 
-    inline uintptr_t base() const { return _elfBase; }
+    inline uintptr_t base() const
+    {
+        return _elfBase;
+    }
 
-    inline uintptr_t end() const { return _elfBase + _loadSize; }
+    inline uintptr_t end() const
+    {
+        return _elfBase + _loadSize;
+    }
 
-    inline KT_ElfW(Ehdr) header() const { return _ehdr; }
+    inline KT_ElfW(Ehdr) header() const
+    {
+        return _ehdr;
+    }
 
-    inline uintptr_t phdr() const { return _phdr; }
+    inline uintptr_t phdr() const
+    {
+        return _phdr;
+    }
 
-    inline std::vector<KT_ElfW(Phdr)> programHeaders() const { return _phdrs; }
+    inline std::vector<KT_ElfW(Phdr)> programHeaders() const
+    {
+        return _phdrs;
+    }
 
-    inline int loads() const { return _loads; }
+    inline int loads() const
+    {
+        return _loads;
+    }
 
-    inline uintptr_t loadBias() const { return _loadBias; }
+    inline uintptr_t loadBias() const
+    {
+        return _loadBias;
+    }
 
-    inline uintptr_t loadSize() const { return _loadSize; }
+    inline uintptr_t loadSize() const
+    {
+        return _loadSize;
+    }
 
-    inline uintptr_t dynamic() const { return _dynamic; }
+    inline uintptr_t dynamic() const
+    {
+        return _dynamic;
+    }
 
-    inline std::vector<KT_ElfW(Dyn)> dynamics() const { return _dynamics; }
+    inline std::vector<KT_ElfW(Dyn)> dynamics() const
+    {
+        return _dynamics;
+    }
 
-    inline uintptr_t stringTable() const { return _stringTable; }
+    inline uintptr_t stringTable() const
+    {
+        return _stringTable;
+    }
 
-    inline uintptr_t symbolTable() const { return _symbolTable; }
+    inline uintptr_t symbolTable() const
+    {
+        return _symbolTable;
+    }
 
-    inline size_t stringTableSize() const { return _strsz; }
+    inline size_t stringTableSize() const
+    {
+        return _strsz;
+    }
 
-    inline size_t symbolEntrySize() const { return _syment; }
+    inline size_t symbolEntrySize() const
+    {
+        return _syment;
+    }
 
     // dynamic symbols from DT_SYMTAB
     std::unordered_map<std::string, uintptr_t> symbols();
@@ -211,15 +262,33 @@ public:
     uintptr_t findSymbol(const std::string &symbolName);
     uintptr_t findDebugSymbol(const std::string &symbolName);
 
-    inline KittyMemoryEx::ProcMap baseSegment() const { return _base_segment; }
+    inline KittyMemoryEx::ProcMap baseSegment() const
+    {
+        return _base_segment;
+    }
 
-    inline std::vector<KittyMemoryEx::ProcMap> segments() const { return _segments; }
+    inline std::vector<KittyMemoryEx::ProcMap> segments() const
+    {
+        return _segments;
+    }
 
-    inline std::vector<KittyMemoryEx::ProcMap> bssSegments() const { return _bss_segments; }
+    inline std::vector<KittyMemoryEx::ProcMap> bssSegments() const
+    {
+        return _bss_segments;
+    }
 
-    inline std::string filePath() const { return _filepath; }
-    inline std::string realPath() const { return _realpath; }
-    inline bool isZipped() const { return _base_segment.offset != 0; }
+    inline std::string filePath() const
+    {
+        return _filepath;
+    }
+    inline std::string realPath() const
+    {
+        return _realpath;
+    }
+    inline bool isZipped() const
+    {
+        return _base_segment.offset != 0;
+    }
 };
 
 class ElfScannerMgr
@@ -251,7 +320,7 @@ public:
 class LinkerScanner : public ElfScanner
 {
 private:
-struct
+    struct
     {
         uintptr_t solist;
         uintptr_t somain;
@@ -270,21 +339,25 @@ struct
         uintptr_t bias;
         uintptr_t next;
     } _soinfo_offsets;
+    bool _init;
+
+    bool init();
 
 public:
-    LinkerScanner() : ElfScanner()
+    LinkerScanner() : ElfScanner(), _init(false)
     {
         memset(&_linker_syms, 0, sizeof(_linker_syms));
         memset(&_soinfo_offsets, 0, sizeof(_soinfo_offsets));
     }
 
+    LinkerScanner(IKittyMemOp *pMem, const ElfScanner &linkerElf);
     LinkerScanner(IKittyMemOp *pMem, uintptr_t linkerBase);
 
-    inline ElfScanner *asELF() const { return (ElfScanner*)this; }
+    inline ElfScanner *asELF() const { return (ElfScanner *)this; }
 
     inline uintptr_t solist() const
     {
-        if (!isValid()) return 0;
+        if (!isValid() || !_linker_syms.solist) return 0;
 
         uintptr_t value = 0;
         return _pMem->Read(_linker_syms.solist, &value, sizeof(uintptr_t)) == sizeof(uintptr_t) ? value : 0;
@@ -292,7 +365,7 @@ public:
 
     inline uintptr_t somain() const
     {
-        if (!isValid()) return 0;
+        if (!isValid() || !_linker_syms.somain) return 0;
 
         uintptr_t value = 0;
         return _pMem->Read(_linker_syms.somain, &value, sizeof(uintptr_t)) == sizeof(uintptr_t) ? value : 0;
@@ -300,7 +373,7 @@ public:
 
     inline uintptr_t sonext() const
     {
-        if (!isValid()) return 0;
+        if (!isValid() || !_linker_syms.sonext) return 0;
 
         uintptr_t value = 0;
         return _pMem->Read(_linker_syms.sonext, &value, sizeof(uintptr_t)) == sizeof(uintptr_t) ? value : 0;
@@ -308,7 +381,7 @@ public:
 
     inline soinfo_info_t GetSoMainInfo() const
     {
-        if (!isValid()) return {};
+        if (!isValid() || !_linker_syms.somain) return {};
 
         return GetInfoFromSoInfo_(somain(), KittyMemoryEx::getAllMaps(_pMem->processID()));
     }

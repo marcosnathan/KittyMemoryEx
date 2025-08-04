@@ -70,9 +70,9 @@ bool KittyMemoryMgr::initialize(pid_t pid, EKittyMemOP eMemOp, bool initMemPatch
 
 #ifdef __ANDROID__
 #ifdef __LP64__
-    linkerScanner = LinkerScanner(_pMemOp.get(), findMemElf("/linker64").base());
+    linkerScanner = LinkerScanner(_pMemOp.get(), findMemElf("/linker64"));
 #else
-    linkerScanner = LinkerScanner(_pMemOp.get(), findMemElf("/linker").base());
+    linkerScanner = LinkerScanner(_pMemOp.get(), findMemElf("/linker"));
 #endif
 #endif
 
@@ -128,6 +128,38 @@ bool KittyMemoryMgr::isValidELF(uintptr_t elfBase) const
     return readMem(elfBase, magic, sizeof(magic)) && memcmp(magic, "\177ELF", 4) == 0;
 }
 
+std::vector<ElfScanner> KittyMemoryMgr::GetAllELFs() const
+{
+    std::vector<ElfScanner> elfs;
+
+    if (!isMemValid())
+        return elfs;
+
+    auto maps = KittyMemoryEx::getAllMaps(processID());
+    if (maps.empty())
+    {
+        KITTY_LOGD("GetAllELFs: Failed to get process maps.");
+        return elfs;
+    }
+
+    uintptr_t lastElfEndAddr = 0;
+
+    for (auto &it : maps)
+    {
+        if (!it.isValid() || it.startAddress < lastElfEndAddr || !it.readable || it.pathname == "cfi shadow" || !isValidELF(it.startAddress))
+            continue;
+
+        auto elf = ElfScanner(_pMemOp.get(), it.startAddress, maps);
+        if (elf.isValid())
+        {
+            lastElfEndAddr = elf.end();
+            elfs.push_back(elf);
+        }
+    }
+
+    return elfs;
+}
+
 ElfScanner KittyMemoryMgr::findMemElf(const std::string &elfName) const
 {
     ElfScanner ret{};
@@ -135,29 +167,22 @@ ElfScanner KittyMemoryMgr::findMemElf(const std::string &elfName) const
     if (!isMemValid() || elfName.empty())
         return ret;
 
-    // sometimes an ELF has two loads
-    // the one we should use is the one with more segments than other
-
     std::vector<ElfScanner> elfs;
 
-    auto maps = KittyMemoryEx::getMapsContain(_pid, elfName);
-    for (auto &it : maps)
+    const auto allElfs = GetAllELFs();
+    for (const auto &it : allElfs)
     {
-        if (!isValidELF(it.startAddress))
-            continue;
-
-        auto elf = elfScanner.createWithMap(it);
-        if (elf.isValid())
-            elfs.push_back(elf);
+        if (it.isValid() && KittyUtils::String::EndsWith(it.realPath(), elfName))
+        {
+            elfs.push_back(it);
+        }
     }
 
     if (elfs.empty())
         return ret;
 
-    ret = elfs.front();
-
     if (elfs.size() == 1)
-        return ret;
+        return elfs[0];
 
     int nMostSegments = 0;
     for (auto &it : elfs)
@@ -173,70 +198,49 @@ ElfScanner KittyMemoryMgr::findMemElf(const std::string &elfName) const
     return ret;
 }
 
-ElfScanner KittyMemoryMgr::findMemElfInZip(const std::string& zip, const std::string& elfName) const
+#ifdef __ANDROID__
+std::vector<ElfScanner> KittyMemoryMgr::GetAllLinkerELFs() const
 {
-    // Comparing ELF data offset in zip to the mapped memory offset
+    std::vector<ElfScanner> elfs;
 
-    ElfScanner ret{};
+    if (!isMemValid() || !linkerScanner.isValid())
+        return elfs;
 
-    if (!isMemValid() || elfName.empty())
-        return ret;
-
-    auto maps = KittyMemoryEx::getMapsEndWith(_pid, zip);
+    auto maps = KittyMemoryEx::getAllMaps(processID());
     if (maps.empty())
-        return ret;
-
-    auto map = maps.front();
-
-    struct zip_t* z = zip_open(map.pathname.c_str(), 0, 'r');
-    if (!z) return ret;
-
-    bool found = false;
-    int i, n = zip_entries_total(z);
-    for (i = 0; i < n; ++i)
     {
-        zip_entry_openbyindex(z, i);
-        {
-            std::string name = zip_entry_name(z);
-            if (KittyUtils::String::EndsWith(name, elfName))
-            {
-                unsigned long long data_offset = zip_entry_data_offset(z);
-                for (auto& it : maps)
-                {
-                    if (it.inode == map.inode && it.offset == data_offset)
-                    {
-                        ret = elfScanner.createWithMap(it);
-                        found = true;
-                        break;
-                    }
-                }
-            }
-        }
-        zip_entry_close(z);
-        if (found) break;
+        KITTY_LOGD("GetAllELFs: Failed to get process maps.");
+        return elfs;
     }
 
-    zip_close(z);
+    const auto solistInfo = linkerScanner.GetSoList();
+    for (const auto &it : solistInfo)
+    {
+        auto elf = ElfScanner(_pMemOp.get(), it, maps);
+        if (elf.isValid())
+        {
+            elfs.push_back(elf);
+        }
+    }
 
-    return ret;
+    return elfs;
 }
 
-#ifdef __ANDROID__
-    ElfScanner KittyMemoryMgr::findMemElfFromLinker(const std::string &elfName) const
+ElfScanner KittyMemoryMgr::findMemElfInLinker(const std::string &elfName) const
+{
+    if (linkerScanner.isValid())
     {
-        if (linkerScanner.isValid())
+        const auto solistInfo = linkerScanner.GetSoList();
+        for (const auto &it : solistInfo)
         {
-            const auto solistInfo = linkerScanner.GetSoList();
-            for (const auto &it : solistInfo)
+            if (KittyUtils::String::EndsWith(it.realpath, elfName))
             {
-                if (KittyUtils::String::EndsWith(it.realpath, elfName))
-                {
-                    return elfScanner.createWithSoInfo(it);
-                }
+                return elfScanner.createWithSoInfo(it);
             }
         }
-        return {};
     }
+    return {};
+}
 #endif
 
 ElfScanner KittyMemoryMgr::findMemElfProgram() const
@@ -273,9 +277,9 @@ uintptr_t KittyMemoryMgr::findRemoteOfSymbol(const local_symbol_t &local_sym) co
         KITTY_LOGE("KittyInjector: Failed to find %s, remote lib not found.", local_sym.name);
         return 0;
     }
-    
+
     uintptr_t remote_address = r_lib.findSymbol(local_sym.name);
-    
+
     // fallback
     if (!remote_address)
         remote_address = local_sym.address - l_lib.startAddress + r_lib.base();

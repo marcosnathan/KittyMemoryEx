@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.10)
 project(KittyMemoryExExample)
 
 set(KITTYMEMORY_PATH ../KittyMemoryEx)
-FILE(GLOB KITTYMEMORY_SRC ${KITTYMEMORY_PATH}/*.cpp)
+file(GLOB KITTYMEMORY_SRC ${KITTYMEMORY_PATH}/*.cpp)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 

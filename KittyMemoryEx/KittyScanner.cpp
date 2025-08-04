@@ -224,7 +224,7 @@ uintptr_t KittyScannerMgr::findDataFirst(const uintptr_t start, const uintptr_t 
 
 // refs https://gist.github.com/resilar/24bb92087aaec5649c9a2afc0b4350c8
 
-ElfScanner::ElfScanner(IKittyMemOp *pMem, uintptr_t elfBase)
+ElfScanner::ElfScanner(IKittyMemOp *pMem, uintptr_t elfBase, const std::vector<KittyMemoryEx::ProcMap> &maps)
 {
     _pMem = nullptr;
     _elfBase = 0;
@@ -237,7 +237,7 @@ ElfScanner::ElfScanner(IKittyMemOp *pMem, uintptr_t elfBase)
     _stringTable = 0;
     _symbolTable = 0;
     _strsz = 0;
-    _syment = 0;
+    _syment = sizeof(KT_ElfW(Sym));
     _headerless = false;
     _symbols_init = false;
     _dsymbols_init = false;
@@ -249,40 +249,46 @@ ElfScanner::ElfScanner(IKittyMemOp *pMem, uintptr_t elfBase)
     _elfBase = elfBase;
 
     // read ELF header
-    if (!_pMem->Read(elfBase, &_ehdr, sizeof(_ehdr)))
+    if (!_pMem->Read(_elfBase, &_ehdr, sizeof(_ehdr)))
     {
-        KITTY_LOGD("ElfScanner: failed to read ELF (%p) header.", (void *)elfBase);
+        KITTY_LOGD("ElfScanner: failed to read ELF (%p) header.", (void *)_elfBase);
         return;
     }
 
     // verify ELF header
     if (memcmp(_ehdr.e_ident, "\177ELF", 4) != 0)
     {
-        KITTY_LOGD("ElfScanner: (%p) is not a valid ELF.", (void *)elfBase);
+        KITTY_LOGD("ElfScanner: (%p) is not a valid ELF.", (void *)_elfBase);
         return;
     }
 
     // check ELF bit
     if (_ehdr.e_ident[EI_CLASS] != KT_ELF_EICLASS)
     {
-        KITTY_LOGD("ElfScanner: ELF class mismatch (%p).", (void *)elfBase);
+        KITTY_LOGD("ElfScanner: ELF class mismatch (%p).", (void *)_elfBase);
         return;
     }
 
     // check common header values
-    if (!_ehdr.e_phnum || !_ehdr.e_phentsize || !_ehdr.e_shnum || !_ehdr.e_shentsize)
+    if (!_ehdr.e_phoff || !_ehdr.e_phnum || !_ehdr.e_phentsize || !_ehdr.e_shnum || !_ehdr.e_shentsize)
     {
-        KITTY_LOGD("ElfScanner: Invalid header values (%p).", (void *)elfBase);
+        KITTY_LOGD("ElfScanner: Invalid header values (%p).", (void *)_elfBase);
         return;
     }
 
-    _phdr = elfBase + _ehdr.e_phoff;
+    if (!KittyMemoryEx::getAddressMap(maps, _elfBase + _ehdr.e_phoff).readable)
+    {
+        KITTY_LOGD("ElfScanner: Invalid phdr (%p + %p) = %p.", (void *)_elfBase, (void *)_ehdr.e_phoff, (void *)(_elfBase + _ehdr.e_phoff));
+        return;
+    }
+
+    _phdr = _elfBase + _ehdr.e_phoff;
 
     // read all program headers
     std::vector<char> phdrs_buf(_ehdr.e_phnum * _ehdr.e_phentsize);
     if (!_pMem->Read(_phdr, &phdrs_buf[0], phdrs_buf.size()))
     {
-        KITTY_LOGD("ElfScanner: failed to read ELF (%p) program headers.", (void *)elfBase);
+        KITTY_LOGD("ElfScanner: failed to read ELF (%p) program headers.", (void *)_elfBase);
         return;
     }
 
@@ -313,20 +319,20 @@ ElfScanner::ElfScanner(IKittyMemOp *pMem, uintptr_t elfBase)
 
     if (!_loads)
     {
-        KITTY_LOGD("ElfScanner: No loads entry for ELF (%p).", (void *)elfBase);
+        KITTY_LOGD("ElfScanner: No loads entry for ELF (%p).", (void *)_elfBase);
         return;
     }
 
     if (!max_vaddr)
     {
-        KITTY_LOGD("ElfScanner: failed to find load size for ELF (%p).", (void *)elfBase);
+        KITTY_LOGD("ElfScanner: failed to find load size for ELF (%p).", (void *)_elfBase);
         return;
     }
 
     min_vaddr = KT_PAGE_START(min_vaddr);
     max_vaddr = KT_PAGE_END(max_vaddr);
 
-    _loadBias = elfBase - min_vaddr;
+    _loadBias = _elfBase - min_vaddr;
     _loadSize = max_vaddr - min_vaddr;
 
     uintptr_t seg_start = load_vaddr + _loadBias;
@@ -344,11 +350,19 @@ ElfScanner::ElfScanner(IKittyMemOp *pMem, uintptr_t elfBase)
     {
         if (phdr.p_type == PT_DYNAMIC)
         {
+            if (phdr.p_vaddr == 0 || phdr.p_memsz == 0)
+                break;
+            if (!KittyMemoryEx::getAddressMap(maps, _loadBias + phdr.p_vaddr).readable)
+                break;
+            if (!KittyMemoryEx::getAddressMap(maps, _loadBias + phdr.p_vaddr + (phdr.p_memsz - 1)).readable)
+                break;
+
             _dynamic = _loadBias + phdr.p_vaddr;
+
             std::vector<KT_ElfW(Dyn)> dyn_buff(phdr.p_memsz / sizeof(KT_ElfW(Dyn)));
             if (!_pMem->Read(_dynamic, &dyn_buff[0], phdr.p_memsz))
             {
-                KITTY_LOGD("ElfScanner: failed to read dynamic for ELF (%p).", (void *)elfBase);
+                KITTY_LOGD("ElfScanner: failed to read dynamic for ELF (%p).", (void *)_elfBase);
                 break;
             }
 
@@ -382,39 +396,33 @@ ElfScanner::ElfScanner(IKittyMemOp *pMem, uintptr_t elfBase)
 
                 _dynamics.push_back(dyn);
             }
-        }
-    }
 
-    // check required dynamics for symbol lookup
-    if (!_elfBase || !_loadSize || !_phdr || !_dynamic || !_loadBias || !_stringTable || !_symbolTable)
-    {
-        KITTY_LOGD("ElfScanner: Failed to require dynamics for symbol lookup.");
-        KITTY_LOGD("ElfScanner: elfBase: %p | bias: %p | phdr: %p | dyn: %p | strtab=%p | symtab=%p | strsz=%p | syment=%p",
-                   (void *)_elfBase, (void *)_loadBias, (void *)_phdr, (void *)_dynamic, (void *)_stringTable, (void *)_symbolTable, (void *)_strsz, (void *)_syment);
-        return;
+            break;
+        }
     }
 
     auto fix_table_address = [&](uintptr_t &table_addr)
     {
         if (table_addr && table_addr < _loadBias)
             table_addr += _loadBias;
+
+        if (!KittyMemoryEx::getAddressMap(maps, table_addr).readable)
+            table_addr = 0;
     };
 
     fix_table_address(_stringTable);
     fix_table_address(_symbolTable);
 
-    if (_syment == 0)
-    {
-        _syment = sizeof(KT_ElfW(Sym));
-    }
-
     if (_loadSize)
     {
-        auto p_maps = KittyMemoryEx::getAllMaps(_pMem->processID());
-        for (auto &it : p_maps)
+        for (auto &it : maps)
         {
             if (it.startAddress >= _elfBase && it.endAddress <= (_elfBase + _loadSize))
             {
+                if (it.startAddress == _elfBase)
+                {
+                    _base_segment = it;
+                }
                 _segments.push_back(it);
             }
 
@@ -424,7 +432,6 @@ ElfScanner::ElfScanner(IKittyMemOp *pMem, uintptr_t elfBase)
 
         if (!_segments.empty())
         {
-            _base_segment = _segments.front();
             _filepath = _base_segment.pathname;
             _realpath = _base_segment.pathname;
             if (!_base_segment.pathname.empty() && _base_segment.offset != 0)
@@ -437,25 +444,11 @@ ElfScanner::ElfScanner(IKittyMemOp *pMem, uintptr_t elfBase)
                 }
             }
 
-            if (bss_start && bss_end)
+            for (const auto &it : _segments)
             {
-                for (const auto &it : _segments)
+                if ((bss_start && bss_end && it.startAddress >= bss_start && it.endAddress <= bss_end) || it.pathname == "[anon:.bss]")
                 {
-                    if (it.startAddress >= bss_start && it.endAddress <= bss_end)
-                    {
-                        _bss_segments.push_back(it);
-                    }
-                }
-            }
-
-            if (_bss_segments.empty())
-            {
-                for (const auto &it : _segments)
-                {
-                    if (it.pathname == "[anon:.bss]")
-                    {
-                        _bss_segments.push_back(it);
-                    }
+                    _bss_segments.push_back(it);
                 }
             }
         }
@@ -463,7 +456,7 @@ ElfScanner::ElfScanner(IKittyMemOp *pMem, uintptr_t elfBase)
 }
 
 #ifdef __ANDROID__
-ElfScanner::ElfScanner(IKittyMemOp *pMem, const soinfo_info_t &soinfo)
+ElfScanner::ElfScanner(IKittyMemOp *pMem, const soinfo_info_t &soinfo, const std::vector<KittyMemoryEx::ProcMap> &maps)
 {
     _pMem = nullptr;
     _elfBase = 0;
@@ -498,20 +491,18 @@ ElfScanner::ElfScanner(IKittyMemOp *pMem, const soinfo_info_t &soinfo)
     _realpath = soinfo.realpath;
 
     bool isLinker = KittyUtils::String::EndsWith(soinfo.path, "/linker") || KittyUtils::String::EndsWith(soinfo.path, "/linker64");
-    if ((!isLinker && (_elfBase == 0 || _loadSize == 0)) ||  _loadBias == 0 || _phdr == 0 || _dynamic == 0 || _stringTable == 0 || _symbolTable == 0)
+    if ((!isLinker && (_elfBase == 0 || _loadSize == 0)) || _loadBias == 0 || _phdr == 0 || _dynamic == 0 || _stringTable == 0 || _symbolTable == 0)
     {
-        KITTY_LOGD("ElfScanner: Failed to require dynamics for symbol lookup");
+        KITTY_LOGD("ElfScanner: Invalid soinfo!");
         KITTY_LOGD("ElfScanner: elfBase: %p | bias: %p | phdr: %p | dyn: %p | strtab=%p | symtab=%p | strsz=%p | syment=%p",
                    (void *)_elfBase, (void *)_loadBias, (void *)_phdr, (void *)_dynamic, (void *)_stringTable, (void *)_symbolTable, (void *)_strsz, (void *)_syment);
         return;
     }
 
-    auto p_maps = KittyMemoryEx::getAllMaps(_pMem->processID());
-
     // fix for linker
     if (_elfBase == 0)
     {
-        _elfBase = KittyMemoryEx::getAddressMap(p_maps, soinfo.bias).startAddress;
+        _elfBase = KittyMemoryEx::getAddressMap(maps, soinfo.bias).startAddress;
     }
 
     uintptr_t bss_start = 0, bss_end = 0;
@@ -521,7 +512,6 @@ ElfScanner::ElfScanner(IKittyMemOp *pMem, const soinfo_info_t &soinfo)
         // read ELF header
         if (!_pMem->Read(_elfBase, &_ehdr, sizeof(_ehdr)))
         {
-            _headerless = true;
             KITTY_LOGD("ElfScanner: failed to read ELF header for soinfo(%p).", (void *)_elfBase);
             break;
         }
@@ -543,9 +533,15 @@ ElfScanner::ElfScanner(IKittyMemOp *pMem, const soinfo_info_t &soinfo)
         }
 
         // check common header values
-        if (!_ehdr.e_phnum || !_ehdr.e_phentsize || !_ehdr.e_shnum || !_ehdr.e_shentsize)
+        if (!_ehdr.e_phoff || !_ehdr.e_phnum || !_ehdr.e_phentsize || !_ehdr.e_shnum || !_ehdr.e_shentsize)
         {
             KITTY_LOGD("ElfScanner: Invalid header values (%p).", (void *)_elfBase);
+            break;
+        }
+
+        if (!KittyMemoryEx::getAddressMap(maps, _phdr).readable)
+        {
+            KITTY_LOGD("ElfScanner: Invalid phdr (%p + %p) = %p.", (void *)_elfBase, (void *)_ehdr.e_phoff, (void *)_phdr);
             break;
         }
 
@@ -616,6 +612,13 @@ ElfScanner::ElfScanner(IKittyMemOp *pMem, const soinfo_info_t &soinfo)
         {
             if (phdr.p_type == PT_DYNAMIC)
             {
+                if (_dynamic == 0 || phdr.p_memsz == 0)
+                    break;
+                if (!KittyMemoryEx::getAddressMap(maps, _dynamic).readable)
+                    break;
+                if (!KittyMemoryEx::getAddressMap(maps, _dynamic + (phdr.p_memsz - 1)).readable)
+                    break;
+
                 std::vector<KT_ElfW(Dyn)> dyn_buff(phdr.p_memsz / sizeof(KT_ElfW(Dyn)));
                 if (!_pMem->Read(_dynamic, &dyn_buff[0], phdr.p_memsz))
                 {
@@ -631,7 +634,10 @@ ElfScanner::ElfScanner(IKittyMemOp *pMem, const soinfo_info_t &soinfo)
                     switch (dyn.d_tag)
                     {
                     case DT_STRSZ:
-                        _strsz = dyn.d_un.d_val;
+                        if (_strsz == 0)
+                        {
+                            _strsz = dyn.d_un.d_val;
+                        }
                         break;
                     case DT_SYMENT:
                         _syment = dyn.d_un.d_val;
@@ -642,16 +648,22 @@ ElfScanner::ElfScanner(IKittyMemOp *pMem, const soinfo_info_t &soinfo)
 
                     _dynamics.push_back(dyn);
                 }
+
+                break;
             }
         }
     } while (false);
 
     if (_loadSize)
     {
-        for (auto &it : p_maps)
+        for (auto &it : maps)
         {
             if (it.startAddress >= _elfBase && it.endAddress <= (_elfBase + _loadSize))
             {
+                if (it.startAddress == _elfBase)
+                {
+                    _base_segment = it;
+                }
                 _segments.push_back(it);
             }
 
@@ -661,37 +673,14 @@ ElfScanner::ElfScanner(IKittyMemOp *pMem, const soinfo_info_t &soinfo)
 
         if (!_segments.empty())
         {
-            _base_segment = _segments.front();
-
-            if (bss_start && bss_end)
+            for (const auto &it : _segments)
             {
-                for (const auto &it : _segments)
+                if ((bss_start && bss_end && it.startAddress >= bss_start && it.endAddress <= bss_end) || it.pathname == "[anon:.bss]")
                 {
-                    if (it.startAddress >= bss_start && it.endAddress <= bss_end)
-                    {
-                        _bss_segments.push_back(it);
-                    }
-                }
-            }
-
-            if (_bss_segments.empty())
-            {
-                for (const auto &it : _segments)
-                {
-                    if (it.pathname == "[anon:.bss]")
-                    {
-                        _bss_segments.push_back(it);
-                    }
+                    _bss_segments.push_back(it);
                 }
             }
         }
-    }
-
-    if (!_elfBase || !_loadSize || !_phdr || !_dynamic || !_loadBias || !_stringTable || !_symbolTable)
-    {
-        KITTY_LOGD("ElfScanner: Failed to require dynamics for symbol lookup.");
-        KITTY_LOGD("ElfScanner: elfBase: %p | bias: %p | phdr: %p | dyn: %p | strtab=%p | symtab=%p | strsz=%p | syment=%p",
-                   (void *)_elfBase, (void *)_loadBias, (void *)_phdr, (void *)_dynamic, (void *)_stringTable, (void *)_symbolTable, (void *)_strsz, (void *)_syment);
     }
 }
 #endif
@@ -754,7 +743,7 @@ std::unordered_map<std::string, uintptr_t> ElfScanner::dsymbols()
             return sym_ent->st_value < _loadBias ? _loadBias + sym_ent->st_value : sym_ent->st_value;
         };
 
-        std::pair<void*, size_t> mmap_info = {nullptr, 0};
+        std::pair<void *, size_t> mmap_info = {nullptr, 0};
         if (isZipped())
         {
             mmap_info = KittyUtils::Zip::MMapEntryAtOffset(_filepath, _base_segment.offset);
@@ -873,8 +862,30 @@ LinkerScanner::LinkerScanner(IKittyMemOp *pMem, uintptr_t linkerBase) : ElfScann
 {
     memset(&_linker_syms, 0, sizeof(_linker_syms));
     memset(&_soinfo_offsets, 0, sizeof(_soinfo_offsets));
+    _init = false;
 
     if (!pMem || !isValid()) return;
+
+    _pMem = pMem;
+    init();
+}
+
+LinkerScanner::LinkerScanner(IKittyMemOp *pMem, const ElfScanner &linkerElf) : ElfScanner(linkerElf)
+{
+    memset(&_linker_syms, 0, sizeof(_linker_syms));
+    memset(&_soinfo_offsets, 0, sizeof(_soinfo_offsets));
+    _init = false;
+
+    if (!pMem || !isValid()) return;
+
+    _pMem = pMem;
+    init();
+}
+
+bool LinkerScanner::init()
+{
+    if (_init) return true;
+    if (!_pMem || !isValid()) return false;
 
     for (const auto &sym : dsymbols())
     {
@@ -897,23 +908,34 @@ LinkerScanner::LinkerScanner(IKittyMemOp *pMem, uintptr_t linkerBase) : ElfScann
             break;
     }
 
+    if (!(_linker_syms.solist && _linker_syms.somain && _linker_syms.sonext))
+    {
+        return false;
+    }
+
+    KITTY_LOGD("solist(%zx) | somain(%zx) | sonext(%zx)", solist(), somain(), sonext());
+
     std::vector<char> solist_buf(kSOINFO_BUFFER_SZ, 0);
-    pMem->Read(solist(), solist_buf.data(), kSOINFO_BUFFER_SZ);
+    _pMem->Read(solist(), solist_buf.data(), kSOINFO_BUFFER_SZ);
 
     std::vector<char> si_buf(kSOINFO_BUFFER_SZ, 0);
     uintptr_t somain_ptr = somain();
-    pMem->Read(somain_ptr ? somain_ptr : sonext(), si_buf.data(), kSOINFO_BUFFER_SZ);
+    _pMem->Read(somain_ptr ? somain_ptr : sonext(), si_buf.data(), kSOINFO_BUFFER_SZ);
+
+    auto allMaps = KittyMemoryEx::getAllMaps(_pMem->processID());
 
     ElfScanner si_elf{};
     for (size_t i = 0; i < si_buf.size(); i += sizeof(uintptr_t))
     {
-        si_elf = ElfScanner(pMem, *(uintptr_t *)&si_buf[i]);
+        si_elf = ElfScanner(_pMem, *(uintptr_t *)&si_buf[i], allMaps);
         if (si_elf.isValid())
         {
             _soinfo_offsets.base = i;
             break;
         }
     }
+
+    KITTY_LOGD("soinfo_base(%zx)", _soinfo_offsets.base);
 
     for (size_t i = 0; i < si_buf.size(); i += sizeof(uintptr_t))
     {
@@ -937,17 +959,28 @@ LinkerScanner::LinkerScanner(IKittyMemOp *pMem, uintptr_t linkerBase) : ElfScann
             _soinfo_offsets.strsz = i;
     }
 
+    KITTY_LOGD("soinfo_bias(%zx) | soinfo_size(%zx)", _soinfo_offsets.base, _soinfo_offsets.size);
+    KITTY_LOGD("soinfo_phdr(%zx, %zx) | soinfo_dyn(%zx)", _soinfo_offsets.phdr, _soinfo_offsets.phnum, _soinfo_offsets.dyn);
+    KITTY_LOGD("soinfo_strtab(%zx, %zx) | soinfo_symtab(%zx)", _soinfo_offsets.strtab, _soinfo_offsets.strsz, _soinfo_offsets.symtab);
+
+    if (!(_soinfo_offsets.size && _soinfo_offsets.bias &&
+          _soinfo_offsets.dyn && _soinfo_offsets.symtab &&
+          _soinfo_offsets.strtab && _soinfo_offsets.strsz))
+    {
+        return false;
+    }
+
     for (size_t i = 0; i < solist_buf.size(); i += sizeof(uintptr_t))
     {
         uintptr_t value = *(uintptr_t *)&solist_buf[i];
 
         uintptr_t tmp_base = 0;
-        pMem->Read(value + _soinfo_offsets.base, &tmp_base, sizeof(uintptr_t));
-        auto tmp_elf = ElfScanner(pMem, tmp_base);
+        _pMem->Read(value + _soinfo_offsets.base, &tmp_base, sizeof(uintptr_t));
+        auto tmp_elf = ElfScanner(_pMem, tmp_base, allMaps);
         if (tmp_elf.isValid())
         {
             uintptr_t tmp_size = 0;
-            pMem->Read(value + _soinfo_offsets.size, &tmp_size, sizeof(uintptr_t));
+            _pMem->Read(value + _soinfo_offsets.size, &tmp_size, sizeof(uintptr_t));
             if (tmp_elf.loadSize() == tmp_size)
             {
                 _soinfo_offsets.next = i;
@@ -956,17 +989,17 @@ LinkerScanner::LinkerScanner(IKittyMemOp *pMem, uintptr_t linkerBase) : ElfScann
         }
     }
 
-    KITTY_LOGD("soinfo_base(%zx) | soinfo_size(%zx)", _soinfo_offsets.base, _soinfo_offsets.size);
-    KITTY_LOGD("soinfo_phdr(%zx, %zx) | soinfo_dyn(%zx)", _soinfo_offsets.phdr, _soinfo_offsets.phnum, _soinfo_offsets.dyn);
-    KITTY_LOGD("soinfo_strtab(%zx, %zx) | soinfo_symtab(%zx)", _soinfo_offsets.strtab, _soinfo_offsets.strsz, _soinfo_offsets.symtab);
-    KITTY_LOGD("soinfo_bias(%zx) | soinfo_sonext(%zx)", _soinfo_offsets.bias, _soinfo_offsets.next);
+    KITTY_LOGD("soinfo_sonext(%zx)", _soinfo_offsets.next);
+
+    _init = _soinfo_offsets.next != 0;
+    return _init;
 }
 
 std::vector<soinfo_info_t> LinkerScanner::GetSoList() const
 {
     std::vector<soinfo_info_t> infos{};
 
-    if (!isValid()) return infos;
+    if (!isValid() || !_init) return infos;
 
     auto maps = KittyMemoryEx::getAllMaps(_pMem->processID());
     uintptr_t si = solist();
@@ -986,6 +1019,8 @@ std::vector<soinfo_info_t> LinkerScanner::GetSoList() const
 soinfo_info_t LinkerScanner::GetInfoFromSoInfo_(uintptr_t si, const std::vector<KittyMemoryEx::ProcMap> &maps) const
 {
     soinfo_info_t info{};
+
+    if (!isValid() || !_init) return info;
 
     thread_local static std::vector<char> si_buf(kSOINFO_BUFFER_SZ);
     memset(si_buf.data(), 0, si_buf.size());

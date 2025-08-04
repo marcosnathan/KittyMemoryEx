@@ -8,7 +8,7 @@
 #include "MemoryBackup.hpp"
 #include "KittyScanner.hpp"
 #include "KittyTrace.hpp"
-#include "KittyArm64.hpp"
+#include "KittyAsm.hpp"
 #include "KittyPtrValidator.hpp"
 
 using KittyMemoryEx::ProcMap;
@@ -89,20 +89,25 @@ public:
     bool isValidELF(uintptr_t elfBase) const;
 
     /**
+     * Fetch all in-memory loaded ELFs
+     */
+    std::vector<ElfScanner> GetAllELFs() const;
+
+    /**
      * Find in-memory loaded ELF with name
      */
     ElfScanner findMemElf(const std::string &elfName) const;
 
-    /**
-     * Find in-memory loaded ELF with name in zip
-     */
-    ElfScanner findMemElfInZip(const std::string &zip, const std::string &elfName) const;
-
 #ifdef __ANDROID__
     /**
-     * Find in-memory loaded ELF with name from linker solist
+     * Fetch all ELFs in linker solist
      */
-    ElfScanner findMemElfFromLinker(const std::string &elfName) const;
+    std::vector<ElfScanner> GetAllLinkerELFs() const;
+
+    /**
+     * Find in-memory loaded ELF with name in linker solist
+     */
+    ElfScanner findMemElfInLinker(const std::string &elfName) const;
 #endif
 
     /**
@@ -114,7 +119,7 @@ public:
      * Find remote address of local symbol.
      * Use macro KT_LOCAL_SYMBOL.
      * Example findRemoteOfSymbol(KT_LOCAL_SYMBOL(mmap)), to find mmap address in remote process.
-    */
+     */
     uintptr_t findRemoteOfSymbol(const local_symbol_t &local_sym) const;
 
     /**
