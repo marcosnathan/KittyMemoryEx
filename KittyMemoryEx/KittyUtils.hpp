@@ -24,6 +24,9 @@
 #include <random>
 #include <functional>
 
+#include <errno.h>
+#include <inttypes.h>
+
 #include <elf.h>
 #ifdef __LP64__
 #define KT_ELFCLASS_BITS 64
@@ -36,10 +39,10 @@
 #define KT_ElfW(x) Elf32_##x
 #define KT_ELFW(x) ELF32_##x
 #endif
-#define KT_ELF_ST_BIND(val) (((unsigned char) (val)) >> 4)
-#define KT_ELF_ST_TYPE(val)	((val) & 0xf)
+#define KT_ELF_ST_BIND(val) (((unsigned char)(val)) >> 4)
+#define KT_ELF_ST_TYPE(val) ((val) & 0xf)
 #define KT_ELF_ST_INFO(bind, type) (((bind) << 4) + ((type) & 0xf))
-#define KT_ELF_ST_VISIBILITY(o)	((o) & 0x03)
+#define KT_ELF_ST_VISIBILITY(o) ((o) & 0x03)
 
 #define KT_PAGE_SIZE (sysconf(_SC_PAGE_SIZE))
 #define KT_PAGE_START(x) (uintptr_t(x) & ~(KT_PAGE_SIZE - 1))
@@ -55,9 +58,9 @@
 #ifdef kITTYMEMORY_DEBUG
 #define KITTY_LOGD(fmt, ...) ((void)__android_log_print(ANDROID_LOG_DEBUG, KITTY_LOG_TAG, fmt, ##__VA_ARGS__))
 #else
-#define KITTY_LOGD(fmt, ...) \
-    do                       \
-    {                        \
+#define KITTY_LOGD(fmt, ...)                                                                                           \
+    do                                                                                                                 \
+    {                                                                                                                  \
     } while (0)
 #endif
 
@@ -70,9 +73,9 @@
 #ifdef kITTYMEMORY_DEBUG
 #define KITTY_LOGD(fmt, ...) printf("D: " fmt "\n", ##__VA_ARGS__)
 #else
-#define KITTY_LOGD(fmt, ...) \
-    do                       \
-    {                        \
+#define KITTY_LOGD(fmt, ...)                                                                                           \
+    do                                                                                                                 \
+    {                                                                                                                  \
     } while (0)
 #endif
 
@@ -82,29 +85,15 @@
 
 #endif
 
-#define KT_EINTR_RETRY(exp) ({         \
-    __typeof__(exp) _rc;                   \
-    do {                                   \
-        _rc = (exp);                       \
-    } while (_rc == -1 && errno == EINTR); \
-    _rc; })
-
-struct zip_entry_info_t
-{
-    std::string name;
-    uintptr_t offset;
-    ssize_t index;
-    uint32_t crc32;
-    bool is_dir;
-    size_t size, comp_size, uncomp_size;
-
-    zip_entry_info_t() : offset(0), index(0), crc32(0), is_dir(false), size(0), comp_size(0), uncomp_size(0)
-    {
-    }
-    zip_entry_info_t(uint32_t crc32, bool is_dir, std::string name, uintptr_t offset, ssize_t index, size_t size, size_t comp_size, size_t uncomp_size) : offset(offset), index(index), crc32(crc32), is_dir(is_dir), size(size), comp_size(comp_size), uncomp_size(uncomp_size)
-    {
-    }
-};
+#define KT_EINTR_RETRY(exp)                                                                                            \
+    ({                                                                                                                 \
+        __typeof__(exp) _rc;                                                                                           \
+        do                                                                                                             \
+        {                                                                                                              \
+            _rc = (exp);                                                                                               \
+        } while (_rc == -1 && errno == EINTR);                                                                         \
+        _rc;                                                                                                           \
+    })
 
 namespace KittyUtils
 {
@@ -125,17 +114,17 @@ namespace KittyUtils
         {
             return str.length() >= str2.length() && str.compare(0, str2.length(), str2) == 0;
         }
-        
+
         static inline bool Contains(const std::string &str, const std::string &str2)
         {
             return str.length() >= str2.length() && str.find(str2) != std::string::npos;
         }
-        
+
         static inline bool EndsWith(const std::string &str, const std::string &str2)
         {
             return str.length() >= str2.length() && str.compare(str.length() - str2.length(), str2.length(), str2) == 0;
         }
-        
+
         void Trim(std::string &str);
 
         bool ValidateHex(std::string &hex);
@@ -221,9 +210,38 @@ namespace KittyUtils
 
     namespace Zip
     {
-        zip_entry_info_t GetEntryInfoAtOffset(const std::string &zipPath, uintptr_t offset);
+#define KT_EOCD_SIGNATURE 0x06054b50
+#define KT_ZIP64_EOCD_SIGNATURE 0x06064b50
+#define KT_ZIP64_EOCD_LOCATOR 0x07064b50
+#define KT_CENTRAL_DIR_SIGNATURE 0x02014b50
+#define KT_LOCAL_HEADER_SIGNATURE 0x04034b50
+#define KT_ZIP64_EXTRA_ID 0x0001
+#define KT_MAX_NAME_LEN 65535 // ZIP max file name length
 
-        std::pair<void*, size_t> MMapEntryAtOffset(const std::string &zipPath, uintptr_t offset);
-    }
+        struct ZipFileInfo
+        {
+            std::string fileName;
+            uint64_t compressedSize = 0;
+            uint64_t uncompressedSize = 0;
+            uint16_t compressionMethod = 0;
+            uint32_t crc32 = 0;
+            uint16_t modTime = 0;
+            uint16_t modDate = 0;
+            uint64_t dataOffset = 0;
+        };
 
-}
+        struct ZipFileMMap
+        {
+            void *data = nullptr;
+            size_t size = 0;
+        };
+
+        bool GetCentralDirInfo(int fd, uint64_t fileSize, bool &isZip64, uint64_t &cdOffset, uint64_t &totalEntries);
+
+        std::vector<ZipFileInfo> listFilesInZip(const std::string &zipPath);
+
+        ZipFileInfo GetFileInfoByDataOffset(const std::string &zipPath, uint64_t dataOffset);
+        ZipFileMMap MMapFileByDataOffset(const std::string &zipPath, uint64_t dataOffset);
+    } // namespace Zip
+
+} // namespace KittyUtils

@@ -4,6 +4,8 @@
 #include "KittyMemoryEx.hpp"
 #include "KittyMemOp.hpp"
 
+#include <cstddef>
+#include <cstdint>
 #include <unordered_map>
 #include <functional>
 #include <utility>
@@ -14,8 +16,12 @@ private:
     IKittyMemOp *_pMem;
 
 public:
-    KittyScannerMgr() : _pMem(nullptr) {}
-    KittyScannerMgr(IKittyMemOp *pMem) : _pMem(pMem) {}
+    KittyScannerMgr() : _pMem(nullptr)
+    {
+    }
+    KittyScannerMgr(IKittyMemOp *pMem) : _pMem(pMem)
+    {
+    }
 
     /**
      * Search for bytes within a memory range and return all results
@@ -27,7 +33,8 @@ public:
      *
      * @return vector list of all found bytes addresses
      */
-    std::vector<uintptr_t> findBytesAll(const uintptr_t start, const uintptr_t end, const char *bytes, const std::string &mask) const;
+    std::vector<uintptr_t> findBytesAll(const uintptr_t start, const uintptr_t end, const char *bytes,
+                                        const std::string &mask) const;
 
     /**
      * Search for bytes within a memory range and return first result
@@ -39,7 +46,8 @@ public:
      *
      * @return first found bytes address
      */
-    uintptr_t findBytesFirst(const uintptr_t start, const uintptr_t end, const char *bytes, const std::string &mask) const;
+    uintptr_t findBytesFirst(const uintptr_t start, const uintptr_t end, const char *bytes,
+                             const std::string &mask) const;
 
     /**
      * Search for hex within a memory range and return all results
@@ -51,7 +59,8 @@ public:
      *
      * @return vector list of all found hex addresses
      */
-    std::vector<uintptr_t> findHexAll(const uintptr_t start, const uintptr_t end, std::string hex, const std::string &mask) const;
+    std::vector<uintptr_t> findHexAll(const uintptr_t start, const uintptr_t end, std::string hex,
+                                      const std::string &mask) const;
 
     /**
      * Search for hex within a memory range and return first result
@@ -113,9 +122,11 @@ public:
 };
 
 #ifdef __ANDROID__
-#define kSOINFO_BUFFER_SZ 0x200
-struct soinfo_info_t
+
+#define KT_SOINFO_BUFFER_SZ 0x250
+struct kitty_soinfo_t
 {
+    uintptr_t ptr = 0;
     uintptr_t base = 0;
     size_t size = 0;
     uintptr_t phdr = 0;
@@ -129,11 +140,27 @@ struct soinfo_info_t
     std::string path;
     std::string realpath;
 };
+
+enum class EScanElfType : uint32_t
+{
+    Any,
+    Native,
+    Emulated,
+};
+enum class EScanElfFilter : uint32_t
+{
+    Any,
+    System,
+    App,
+};
+
 #endif
 
 class ElfScanner
 {
     friend class ElfScannerMgr;
+    friend class LinkerScannerMgr;
+    friend class NativeBeidgeScannerMgr;
 
 protected:
     IKittyMemOp *_pMem;
@@ -148,9 +175,9 @@ protected:
     uintptr_t _stringTable, _symbolTable;
     size_t _strsz, _syment;
     bool _headerless;
-    KittyMemoryEx::ProcMap _base_segment;
+    KittyMemoryEx::ProcMap _baseSegment;
     std::vector<KittyMemoryEx::ProcMap> _segments;
-    std::vector<KittyMemoryEx::ProcMap> _bss_segments;
+    std::vector<KittyMemoryEx::ProcMap> _bssSegments;
     std::string _filepath;
     std::string _realpath;
     bool _symbols_init;
@@ -159,16 +186,24 @@ protected:
     std::unordered_map<std::string, uintptr_t> _dsymbolsMap;
 
 public:
-    ElfScanner() : _pMem(nullptr), _elfBase(0), _phdr(0), _loads(0), _loadBias(0), _loadSize(0), _dynamic(0), _stringTable(0), _symbolTable(0), _strsz(0), _syment(0), _headerless(false), _symbols_init(false), _dsymbols_init(false) {}
+    ElfScanner()
+        : _pMem(nullptr), _elfBase(0), _phdr(0), _loads(0), _loadBias(0), _loadSize(0), _dynamic(0), _stringTable(0),
+          _symbolTable(0), _strsz(0), _syment(0), _headerless(false), _symbols_init(false), _dsymbols_init(false)
+    {
+    }
 
     ElfScanner(IKittyMemOp *pMem, uintptr_t elfBase, const std::vector<KittyMemoryEx::ProcMap> &maps);
-    ElfScanner(IKittyMemOp *pMem, uintptr_t elfBase) : ElfScanner(pMem, elfBase, (pMem ? KittyMemoryEx::getAllMaps(pMem->processID()) : std::vector<KittyMemoryEx::ProcMap>()))
+    ElfScanner(IKittyMemOp *pMem, uintptr_t elfBase)
+        : ElfScanner(pMem, elfBase,
+                     (pMem ? KittyMemoryEx::getAllMaps(pMem->processID()) : std::vector<KittyMemoryEx::ProcMap>()))
     {
     }
 
 #ifdef __ANDROID__
-    ElfScanner(IKittyMemOp *pMem, const soinfo_info_t &soinfo, const std::vector<KittyMemoryEx::ProcMap> &maps);
-    ElfScanner(IKittyMemOp *pMem, const soinfo_info_t &soinfo) : ElfScanner(pMem, soinfo, (pMem ? KittyMemoryEx::getAllMaps(pMem->processID()) : std::vector<KittyMemoryEx::ProcMap>()))
+    ElfScanner(IKittyMemOp *pMem, const kitty_soinfo_t &soinfo, const std::vector<KittyMemoryEx::ProcMap> &maps);
+    ElfScanner(IKittyMemOp *pMem, const kitty_soinfo_t &soinfo)
+        : ElfScanner(pMem, soinfo,
+                     (pMem ? KittyMemoryEx::getAllMaps(pMem->processID()) : std::vector<KittyMemoryEx::ProcMap>()))
     {
     }
 #endif
@@ -264,7 +299,7 @@ public:
 
     inline KittyMemoryEx::ProcMap baseSegment() const
     {
-        return _base_segment;
+        return _baseSegment;
     }
 
     inline std::vector<KittyMemoryEx::ProcMap> segments() const
@@ -274,7 +309,7 @@ public:
 
     inline std::vector<KittyMemoryEx::ProcMap> bssSegments() const
     {
-        return _bss_segments;
+        return _bssSegments;
     }
 
     inline std::string filePath() const
@@ -287,18 +322,26 @@ public:
     }
     inline bool isZipped() const
     {
-        return _base_segment.offset != 0;
+        return _baseSegment.offset != 0;
     }
 };
 
 class ElfScannerMgr
 {
-private:
+    friend class NativeBeidgeScannerMgr;
+
+protected:
     IKittyMemOp *_pMem;
+    ElfScanner _programElf;
+    std::unordered_map<uintptr_t, ElfScanner> _cached_elfs;
 
 public:
-    ElfScannerMgr() : _pMem(nullptr) {}
-    ElfScannerMgr(IKittyMemOp *pMem) : _pMem(pMem) {}
+    ElfScannerMgr() : _pMem(nullptr)
+    {
+    }
+    ElfScannerMgr(IKittyMemOp *pMem) : _pMem(pMem)
+    {
+    }
 
     inline ElfScanner createWithBase(uintptr_t elfBase) const
     {
@@ -309,15 +352,81 @@ public:
         return !_pMem ? ElfScanner() : ElfScanner(_pMem, map.startAddress);
     }
 #ifdef __ANDROID__
-    inline ElfScanner createWithSoInfo(const soinfo_info_t &soinfo) const
+    inline ElfScanner createWithSoInfo(const kitty_soinfo_t &soinfo) const
     {
         return !_pMem ? ElfScanner() : ElfScanner(_pMem, soinfo);
     }
 #endif
+
+    /**
+     * Validate ELF
+     * @param elfBase: ELF start address
+     */
+    bool isValidELF(uintptr_t elfBase) const;
+
+    inline bool isElfNative(const ElfScanner &elf)
+    {
+        int a = getProgramElf().header().e_machine, b = elf.header().e_machine;
+        return a != 0 && b != 0 && a == b;
+    }
+
+    inline bool isElfEmulated(const ElfScanner &elf)
+    {
+        int a = getProgramElf().header().e_machine, b = elf.header().e_machine;
+        return a != 0 && b != 0 && a != b;
+    }
+
+    /**
+     * /proc/[pid]/exe
+     */
+    ElfScanner &getProgramElf();
+
+#ifdef __ANDROID__
+    /**
+     * Fetch all in-memory loaded ELFs
+     */
+    std::vector<ElfScanner> getAllELFs(EScanElfType type = EScanElfType::Any,
+                                       EScanElfFilter filter = EScanElfFilter::Any);
+
+    /**
+     * Find in-memory loaded ELF with name
+     */
+    ElfScanner findElf(const std::string &path, EScanElfType type = EScanElfType::Any,
+                       EScanElfFilter filter = EScanElfFilter::Any);
+
+    /**
+     * lookup symbol name in all loaded ELFs
+     * @return a vector of symbol absolute address and the ELF where the symbol was found in
+     */
+    std::vector<std::pair<uintptr_t, ElfScanner>> findSymbolAll(const std::string &symbolName,
+                                                                EScanElfType type = EScanElfType::Any,
+                                                                EScanElfFilter filter = EScanElfFilter::Any);
+#else
+    /**
+     * Fetch all in-memory loaded ELFs
+     */
+    std::vector<ElfScanner> getAllELFs();
+
+    /**
+     * Find in-memory loaded ELF with name
+     */
+    ElfScanner findElf(const std::string &path);
+
+    /**
+     * lookup symbol name in all loaded ELFs
+     * @return a vector of symbol absolute address and the ELF where the symbol was found in
+     */
+    std::vector<std::pair<uintptr_t, ElfScanner>> findSymbolAll(const std::string &symbolName);
+#endif
+
+    /**
+     * Find remote address of local symbol.
+     */
+    uintptr_t findRemoteSymbol(const std::string &local_sym_name, uintptr_t local_sym_addr);
 };
 
 #ifdef __ANDROID__
-class LinkerScanner : public ElfScanner
+class LinkerScannerMgr : public ElfScanner
 {
 private:
     struct
@@ -344,20 +453,24 @@ private:
     bool init();
 
 public:
-    LinkerScanner() : ElfScanner(), _init(false)
+    LinkerScannerMgr() : ElfScanner(), _init(false)
     {
         memset(&_linker_syms, 0, sizeof(_linker_syms));
         memset(&_soinfo_offsets, 0, sizeof(_soinfo_offsets));
     }
 
-    LinkerScanner(IKittyMemOp *pMem, const ElfScanner &linkerElf);
-    LinkerScanner(IKittyMemOp *pMem, uintptr_t linkerBase);
+    LinkerScannerMgr(IKittyMemOp *pMem, const ElfScanner &linkerElf);
+    LinkerScannerMgr(IKittyMemOp *pMem, uintptr_t linkerBase);
 
-    inline ElfScanner *asELF() const { return (ElfScanner *)this; }
+    inline ElfScanner *asELF() const
+    {
+        return (ElfScanner *)this;
+    }
 
     inline uintptr_t solist() const
     {
-        if (!isValid() || !_linker_syms.solist) return 0;
+        if (!isValid() || !_linker_syms.solist)
+            return 0;
 
         uintptr_t value = 0;
         return _pMem->Read(_linker_syms.solist, &value, sizeof(uintptr_t)) == sizeof(uintptr_t) ? value : 0;
@@ -365,7 +478,8 @@ public:
 
     inline uintptr_t somain() const
     {
-        if (!isValid() || !_linker_syms.somain) return 0;
+        if (!isValid() || !_linker_syms.somain)
+            return 0;
 
         uintptr_t value = 0;
         return _pMem->Read(_linker_syms.somain, &value, sizeof(uintptr_t)) == sizeof(uintptr_t) ? value : 0;
@@ -373,29 +487,156 @@ public:
 
     inline uintptr_t sonext() const
     {
-        if (!isValid() || !_linker_syms.sonext) return 0;
+        if (!isValid() || !_linker_syms.sonext)
+            return 0;
 
         uintptr_t value = 0;
         return _pMem->Read(_linker_syms.sonext, &value, sizeof(uintptr_t)) == sizeof(uintptr_t) ? value : 0;
     }
 
-    inline soinfo_info_t GetSoMainInfo() const
+    inline kitty_soinfo_t somainInfo() const
     {
-        if (!isValid() || !_linker_syms.somain) return {};
+        if (!isValid() || !_linker_syms.somain)
+            return {};
 
-        return GetInfoFromSoInfo_(somain(), KittyMemoryEx::getAllMaps(_pMem->processID()));
+        return infoFromSoInfo_(somain(), KittyMemoryEx::getAllMaps(_pMem->processID()));
     }
 
-    inline soinfo_info_t GetSoNextInfo() const
+    inline kitty_soinfo_t sonextInfo() const
     {
-        if (!isValid()) return {};
+        if (!isValid())
+            return {};
 
-        return GetInfoFromSoInfo_(sonext(), KittyMemoryEx::getAllMaps(_pMem->processID()));
+        return infoFromSoInfo_(sonext(), KittyMemoryEx::getAllMaps(_pMem->processID()));
     }
 
-    std::vector<soinfo_info_t> GetSoList() const;
+    std::vector<kitty_soinfo_t> allSoInfo() const;
+
+    kitty_soinfo_t findSoInfo(const std::string &name) const;
 
 private:
-    soinfo_info_t GetInfoFromSoInfo_(uintptr_t si, const std::vector<KittyMemoryEx::ProcMap> &maps) const;
+    kitty_soinfo_t infoFromSoInfo_(uintptr_t si, const std::vector<KittyMemoryEx::ProcMap> &maps) const;
 };
+
+enum KT_JNICallType
+{
+    KT_JNICallTypeRegular = 1,
+    KT_JNICallTypeCriticalNative = 2,
+};
+
+struct nbItf_data_t
+{
+    inline nbItf_data_t()
+    {
+        memset(this, 0, sizeof(nbItf_data_t));
+    }
+
+    int version;
+#ifdef __LP64__
+    uint32_t pad1;
 #endif
+    bool (*initialize)(const void *runtime_cbs, const char *private_dir, const char *instruction_set);
+    void *(*loadLibrary)(const char *libpath, int flag);
+    void *(*getTrampoline)(void *handle, const char *name, const char *shorty, uint32_t len);
+    bool (*isSupported)(const char *libpath);
+    const void *(*getAppEnv)(const char *instruction_set);
+    bool (*isCompatibleWith)(uint32_t bridge_version);
+    void *(*getSignalHandler)(int signal);
+    int (*unloadLibrary)(void *handle);
+    const char *(*getError)();
+    bool (*isPathSupported)(const char *library_path);
+    bool (*initAnonymousNamespace)(const char *public_ns_sonames, const char *anon_ns_library_path);
+    void *(*createNamespace)(const char *name, const char *ld_library_path, const char *default_library_path,
+                             uint64_t type, const char *permitted_when_isolated_path, void *parent_ns);
+    bool (*linkNamespaces)(void *from, void *to, const char *shared_libs_sonames);
+    void *(*loadLibraryExt)(const char *libpath, int flag, void *ns);
+    void *(*getVendorNamespace)();
+    void *(*getExportedNamespace)(const char *name);
+    void (*preZygoteFork)();
+    void *(*getTrampolineWithJNICallType)(void *handle, const char *name, const char *shorty, uint32_t len,
+                                          enum KT_JNICallType jni_call_type);
+    void *(*getTrampolineForFunctionPointer)(const void *method, const char *shorty, uint32_t len,
+                                             enum KT_JNICallType jni_call_type);
+    bool (*isNativeBridgeFunctionPointer)(const void *method);
+};
+
+class NativeBridgeScannerMgr
+{
+private:
+    IKittyMemOp *_pMem;
+    KittyScannerMgr *_memScanner;
+    ElfScannerMgr *_elfScanner;
+    ElfScanner _nb, _nbImpl;
+    uintptr_t _sodl;
+    struct
+    {
+        uintptr_t base;
+        uintptr_t size;
+        uintptr_t phdr;
+        uintptr_t phnum;
+        uintptr_t dyn;
+        uintptr_t strtab;
+        uintptr_t symtab;
+        uintptr_t strsz;
+        uintptr_t bias;
+        uintptr_t next;
+    } _soinfo_offsets;
+    bool _init;
+    bool _isHoudini;
+
+    uintptr_t _nbItf;
+    size_t _nbItf_data_size;
+    nbItf_data_t _nbItf_data;
+
+public:
+    bool (*fnNativeBridgeInitialized)();
+
+    NativeBridgeScannerMgr()
+        : _pMem(nullptr), _memScanner(nullptr), _elfScanner(nullptr), _sodl(0), _init(false), _isHoudini(false),
+          _nbItf(0), _nbItf_data_size(0), fnNativeBridgeInitialized(nullptr)
+    {
+        memset(&_nbItf_data, 0, sizeof(_nbItf_data));
+        memset(&_soinfo_offsets, 0, sizeof(_soinfo_offsets));
+    }
+
+    NativeBridgeScannerMgr(IKittyMemOp *pMem, KittyScannerMgr *memScanner, ElfScannerMgr *elfScanner);
+
+    bool init();
+
+    inline bool isValid() const
+    {
+        return _init;
+    }
+
+    inline uintptr_t sodl() const
+    {
+        return _sodl;
+    }
+
+    inline kitty_soinfo_t sodlInfo() const
+    {
+        if (!_pMem || !_sodl)
+            return {};
+
+        return infoFromSoInfo_(_sodl, KittyMemoryEx::getAllMaps(_pMem->processID()));
+    }
+
+    std::vector<kitty_soinfo_t> allSoInfo() const;
+
+    kitty_soinfo_t findSoInfo(const std::string &name) const;
+
+    inline size_t nbItfDataSize() const
+    {
+        return _nbItf_data_size;
+    }
+
+    inline nbItf_data_t nbItfData() const
+    {
+        return _nbItf_data;
+    }
+
+private:
+    kitty_soinfo_t infoFromSoInfo_(uintptr_t si, const std::vector<KittyMemoryEx::ProcMap> &maps) const;
+};
+
+#endif // __ANDROID__

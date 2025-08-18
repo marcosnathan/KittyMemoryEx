@@ -1,7 +1,5 @@
 #include "KittyUtils.hpp"
 
-#include "zip/zip.h"
-
 namespace KittyUtils
 {
 
@@ -18,7 +16,7 @@ namespace KittyUtils
         if (ver > 0)
             return ver;
 
-        char buf[0xff] = { 0 };
+        char buf[0xff] = {0};
         if (__system_property_get("ro.build.version.release", buf))
             ver = std::atoi(buf);
 
@@ -31,7 +29,7 @@ namespace KittyUtils
         if (sdk > 0)
             return sdk;
 
-        char buf[0xff] = { 0 };
+        char buf[0xff] = {0};
         if (__system_property_get("ro.build.version.sdk", buf))
             sdk = std::atoi(buf);
 
@@ -48,7 +46,7 @@ namespace KittyUtils
         return filename;
     }
 
-     std::string fileDirectory(const std::string &filePath)
+    std::string fileDirectory(const std::string &filePath)
     {
         std::string directory;
         const size_t last_slash_idx = filePath.find_last_of("/\\");
@@ -69,9 +67,10 @@ namespace KittyUtils
     void String::Trim(std::string &str)
     {
         // https://www.techiedelight.com/remove-whitespaces-string-cpp/
-        str.erase(std::remove_if(str.begin(), str.end(), [](char c)
-                                 { return (c == ' ' || c == '\n' || c == '\r' ||
-                                           c == '\t' || c == '\v' || c == '\f'); }),
+        str.erase(std::remove_if(str.begin(), str.end(),
+                                 [](char c) {
+                                     return (c == ' ' || c == '\n' || c == '\r' || c == '\t' || c == '\v' || c == '\f');
+                                 }),
                   str.end());
     }
 
@@ -100,9 +99,9 @@ namespace KittyUtils
     std::string String::Random(size_t length)
     {
         static const std::string chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-        
+
         thread_local static std::default_random_engine rnd(std::random_device{}());
-        thread_local static std::uniform_int_distribution<std::string::size_type> dist(0, chars.size()-1);
+        thread_local static std::uniform_int_distribution<std::string::size_type> dist(0, chars.size() - 1);
 
         std::string str(length, '\0');
         for (size_t i = 0; i < length; ++i)
@@ -136,9 +135,8 @@ namespace KittyUtils
     /*
         Convert a block of data to a hex string
     */
-    std::string data2Hex(
-        const void *data,       //!< Data to convert
-        const size_t dataLength //!< Length of the data to convert
+    std::string data2Hex(const void *data,       //!< Data to convert
+                         const size_t dataLength //!< Length of the data to convert
     )
     {
         const auto *byteData = reinterpret_cast<const unsigned char *>(data);
@@ -153,9 +151,8 @@ namespace KittyUtils
     /*
         Convert a hex string to a block of data
     */
-    void dataFromHex(
-        const std::string &in, //!< Input hex string
-        void *data             //!< Data store
+    void dataFromHex(const std::string &in, //!< Input hex string
+                     void *data             //!< Data store
     )
     {
         size_t length = in.length();
@@ -181,69 +178,217 @@ namespace KittyUtils
 
     namespace Zip
     {
-        zip_entry_info_t GetEntryInfoAtOffset(const std::string &zipPath, uintptr_t offset)
+        bool GetCentralDirInfo(int fd, uint64_t fileSize, bool &isZip64, uint64_t &cdOffset, uint64_t &totalEntries)
         {
-            zip_entry_info_t ret{};
-
-            struct zip_t *z = zip_open(zipPath.c_str(), 0, 'r');
-            if (!z) return ret;
-
-            int i, n = zip_entries_total(z);
-            for (i = 0; i < n; ++i)
+            if (fileSize < 22)
             {
-                zip_entry_openbyindex(z, i);
-                {
-                    if (offset == zip_entry_data_offset(z))
-                    {
-                        ret.name = zip_entry_name(z);
-                        ret.offset = offset;
-                        ret.index = zip_entry_index(z);
-                        ret.crc32 = zip_entry_crc32(z);
-                        ret.is_dir = zip_entry_isdir(z);
-                        ret.comp_size = zip_entry_comp_size(z);
-                        ret.uncomp_size = zip_entry_uncomp_size(z);
-                        ret.size = zip_entry_size(z);
-                        zip_entry_close(z);
-                        break;
-                    }
-                    zip_entry_close(z);
-                }
+                KITTY_LOGD("File too small: %" PRIx64 " bytes", fileSize);
+                return false;
             }
 
-            zip_close(z);
-            return ret;
+            void *map = mmap(nullptr, fileSize, PROT_READ, MAP_PRIVATE, fd, 0);
+            if (map == MAP_FAILED)
+            {
+                KITTY_LOGD("mmap failed: %s", strerror(errno));
+                return false;
+            }
+
+            uint8_t *data = static_cast<uint8_t *>(map);
+
+            // Find EOCD or ZIP64 EOCD locator
+            int64_t offset = fileSize - 22;
+            uint32_t sig;
+            while (offset >= 0)
+            {
+                sig = *reinterpret_cast<uint32_t *>(data + offset);
+                if (sig == KT_EOCD_SIGNATURE ||
+                    (sig == KT_ZIP64_EOCD_LOCATOR &&
+                     *reinterpret_cast<uint32_t *>(data + offset - 20) == KT_ZIP64_EOCD_SIGNATURE))
+                {
+                    break;
+                }
+                --offset;
+            }
+
+            if (offset < 0)
+            {
+                KITTY_LOGD("EOCD not found");
+                munmap(map, fileSize);
+                return false;
+            }
+
+            // Read EOCD or ZIP64 EOCD
+            isZip64 = (sig == KT_ZIP64_EOCD_LOCATOR);
+            if (isZip64)
+            {
+                totalEntries = *reinterpret_cast<uint64_t *>(data + offset - 20 + 12);
+                cdOffset = *reinterpret_cast<uint64_t *>(data + offset - 20 + 36);
+            }
+            else
+            {
+                totalEntries = *reinterpret_cast<uint16_t *>(data + offset + 8);
+                cdOffset = *reinterpret_cast<uint32_t *>(data + offset + 16);
+            }
+
+            munmap(map, fileSize);
+            return true;
         }
 
-        std::pair<void*, size_t> MMapEntryAtOffset(const std::string &zipPath, uintptr_t offset)
+        std::vector<ZipFileInfo> listFilesInZip(const std::string &zipPath)
         {
-            std::pair<void*, size_t> ret = {nullptr, 0};
-
-            struct zip_t *z = zip_open(zipPath.c_str(), 0, 'r');
-            if (!z) return ret;
-
-            int i, n = zip_entries_total(z);
-            for (i = 0; i < n; ++i)
+            std::vector<ZipFileInfo> files;
+            int fd = KT_EINTR_RETRY(open(zipPath.c_str(), O_RDONLY));
+            if (fd < 0)
             {
-                zip_entry_openbyindex(z, i);
+                KITTY_LOGD("open failed: %s, error: %s", zipPath.c_str(), strerror(errno));
+                return files;
+            }
+
+            // Get file size
+            struct stat st = {};
+            if (fstat(fd, &st) < 0)
+            {
+                KITTY_LOGD("fstat failed: %s", strerror(errno));
+                close(fd);
+                return files;
+            }
+            uint64_t fileSize = st.st_size;
+
+            // Get central directory info
+            bool isZip64;
+            uint64_t cdOffset, totalEntries;
+            if (!GetCentralDirInfo(fd, fileSize, isZip64, cdOffset, totalEntries))
+            {
+                close(fd);
+                return files;
+            }
+
+            // Map file for parsing
+            void *map = mmap(nullptr, fileSize, PROT_READ, MAP_PRIVATE, fd, 0);
+            if (map == MAP_FAILED)
+            {
+                KITTY_LOGD("mmap failed: %s", strerror(errno));
+                close(fd);
+                return files;
+            }
+            uint8_t *data = static_cast<uint8_t *>(map);
+
+            // Parse central directory
+            for (uint64_t offset = cdOffset, i = 0; i < totalEntries; ++i)
+            {
+                if (*reinterpret_cast<uint32_t *>(data + offset) != KT_CENTRAL_DIR_SIGNATURE)
                 {
-                    unsigned long long entry_offset = zip_entry_data_offset(z);
-                    if (offset == entry_offset)
+                    KITTY_LOGD("Invalid central directory signature at entry %" PRIu64, i);
+                    break;
+                }
+
+                ZipFileInfo info;
+                info.compressionMethod = *reinterpret_cast<uint16_t *>(data + offset + 10);
+                info.modTime = *reinterpret_cast<uint16_t *>(data + offset + 12);
+                info.modDate = *reinterpret_cast<uint16_t *>(data + offset + 14);
+                info.crc32 = *reinterpret_cast<uint32_t *>(data + offset + 16);
+                uint32_t compSize32 = *reinterpret_cast<uint32_t *>(data + offset + 20);
+                uint32_t uncompSize32 = *reinterpret_cast<uint32_t *>(data + offset + 24);
+                info.compressedSize = compSize32;
+                info.uncompressedSize = uncompSize32;
+                uint16_t nameLen = *reinterpret_cast<uint16_t *>(data + offset + 28);
+                uint16_t extraLen = *reinterpret_cast<uint16_t *>(data + offset + 30);
+                uint16_t commentLen = *reinterpret_cast<uint16_t *>(data + offset + 32);
+
+                // Read file name
+                if (nameLen <= KT_MAX_NAME_LEN)
+                {
+                    info.fileName.assign(reinterpret_cast<char *>(data + offset + 46), nameLen);
+
+                    // Get local header offset
+                    uint64_t localOffset = isZip64 && compSize32 == 0xFFFFFFFF
+                                               ? *reinterpret_cast<uint64_t *>(data + offset + 46 + nameLen +
+                                                                               (extraLen >= 24 ? 20 : extraLen))
+                                               : *reinterpret_cast<uint32_t *>(data + offset + 42);
+
+                    // Update sizes for ZIP64
+                    if (isZip64 && compSize32 == 0xFFFFFFFF)
                     {
-                        ret.second = zip_entry_size(z);
-                        if (ret.second)
+                        for (uint16_t j = 0; j < extraLen;)
                         {
-                            ret.first = mmap(nullptr, ret.second, PROT_READ | PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, offset);
-                            zip_entry_noallocread(z, ret.first, ret.second);
+                            uint16_t id = *reinterpret_cast<uint16_t *>(data + offset + 46 + nameLen + j);
+                            uint16_t size = *reinterpret_cast<uint16_t *>(data + offset + 46 + nameLen + j + 2);
+                            if (id == KT_ZIP64_EXTRA_ID && size >= 16)
+                            {
+                                info.uncompressedSize = *reinterpret_cast<uint64_t *>(data + offset + 46 + nameLen + j +
+                                                                                      4);
+                                info.compressedSize = *reinterpret_cast<uint64_t *>(data + offset + 46 + nameLen + j +
+                                                                                    12);
+                                break;
+                            }
+                            j += 4 + size;
                         }
-                        zip_entry_close(z);
-                        break;
                     }
-                    zip_entry_close(z);
+
+                    // Calculate data offset
+                    uint16_t localNameLen = *reinterpret_cast<uint16_t *>(data + localOffset + 26);
+                    uint16_t localExtraLen = *reinterpret_cast<uint16_t *>(data + localOffset + 28);
+                    info.dataOffset = localOffset + 30 + localNameLen + localExtraLen;
+
+                    files.push_back(info);
+                }
+
+                offset += 46 + nameLen + extraLen + commentLen;
+            }
+
+            munmap(map, fileSize);
+            close(fd);
+            return files;
+        }
+
+        ZipFileInfo GetFileInfoByDataOffset(const std::string &zipPath, uint64_t dataOffset)
+        {
+            ZipFileInfo info{};
+
+            const auto files = listFilesInZip(zipPath);
+            for (const auto &it : files)
+            {
+                if (it.dataOffset == dataOffset)
+                {
+                    info = it;
+                    break;
                 }
             }
 
-            zip_close(z);
-            return ret;
+            return info;
         }
-    }
-}
+
+        ZipFileMMap MMapFileByDataOffset(const std::string &zipPath, uint64_t dataOffset)
+        {
+            ZipFileMMap result;
+            int fd = KT_EINTR_RETRY(open(zipPath.c_str(), O_RDONLY));
+            if (fd < 0)
+            {
+                KITTY_LOGD("open failed: %s, error: %s", zipPath.c_str(), strerror(errno));
+                return result;
+            }
+
+            // Get file info to obtain compressed size
+            ZipFileInfo info = GetFileInfoByDataOffset(zipPath, dataOffset);
+            if (info.fileName.empty())
+            {
+                KITTY_LOGD("No file found at offset %" PRIx64, dataOffset);
+                close(fd);
+                return result;
+            }
+
+            // mmap the data
+            result.size = info.compressedSize;
+            result.data = mmap(nullptr, result.size, PROT_READ, MAP_PRIVATE, fd, dataOffset);
+            if (result.data == MAP_FAILED)
+            {
+                KITTY_LOGD("mmap failed at offset %" PRIx64 ": %s", dataOffset, strerror(errno));
+                result.size = 0;
+            }
+
+            close(fd);
+            return result;
+        }
+    } // namespace Zip
+
+} // namespace KittyUtils

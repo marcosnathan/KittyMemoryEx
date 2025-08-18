@@ -12,17 +12,7 @@
 #include "KittyPtrValidator.hpp"
 
 using KittyMemoryEx::ProcMap;
-
-struct local_symbol_t
-{
-    const char *name = nullptr;
-    uintptr_t address = 0;
-
-    local_symbol_t() : name(nullptr), address(0) {}
-    local_symbol_t(const char *n, uintptr_t a) : name(n), address(a) {}
-};
-
-#define KT_LOCAL_SYMBOL(x) local_symbol_t(#x, uintptr_t(x))
+using KittyMemoryEx::EProcMapFilter;
 
 class KittyMemoryMgr
 {
@@ -41,7 +31,8 @@ public:
     ElfScannerMgr elfScanner;
 
 #ifdef __ANDROID__
-    LinkerScanner linkerScanner;
+    LinkerScannerMgr linkerScanner;
+    NativeBridgeScannerMgr nbScanner;
 #endif
 
     KittyTraceMgr trace;
@@ -81,46 +72,6 @@ public:
      * Write string to remote memory
      */
     bool writeMemStr(uintptr_t address, std::string str) const;
-
-    /**
-     * Validate ELF
-     * @param elfBase: ELF start address
-     */
-    bool isValidELF(uintptr_t elfBase) const;
-
-    /**
-     * Fetch all in-memory loaded ELFs
-     */
-    std::vector<ElfScanner> GetAllELFs() const;
-
-    /**
-     * Find in-memory loaded ELF with name
-     */
-    ElfScanner findMemElf(const std::string &elfName) const;
-
-#ifdef __ANDROID__
-    /**
-     * Fetch all ELFs in linker solist
-     */
-    std::vector<ElfScanner> GetAllLinkerELFs() const;
-
-    /**
-     * Find in-memory loaded ELF with name in linker solist
-     */
-    ElfScanner findMemElfInLinker(const std::string &elfName) const;
-#endif
-
-    /**
-     * /proc/[pid]/exe
-     */
-    ElfScanner findMemElfProgram() const;
-
-    /**
-     * Find remote address of local symbol.
-     * Use macro KT_LOCAL_SYMBOL.
-     * Example findRemoteOfSymbol(KT_LOCAL_SYMBOL(mmap)), to find mmap address in remote process.
-     */
-    uintptr_t findRemoteOfSymbol(const local_symbol_t &local_sym) const;
 
     /**
      * Dump remote memory range

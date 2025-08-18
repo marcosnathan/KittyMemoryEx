@@ -64,7 +64,7 @@ namespace KittyMemoryEx
   /*
    * find processes ID by matching /proc/[pid]/cmdline
    */
-  std::vector<pid_t> getPIDsOf(const std::string &processName);
+  std::vector<pid_t> getProcessIDs(const std::string &processName);
 
   /*
    * find process ID by matching /proc/[pid]/cmdline
@@ -76,48 +76,31 @@ namespace KittyMemoryEx
    */
   int getStatusInteger(pid_t pid, const std::string &var);
 
+  enum class EProcMapFilter
+  {
+      Equal,
+      Contains,
+      StartWith,
+      EndWith
+  };
+
   /*
    * Gets info of all maps in /proc/[pid]/maps
    */
   std::vector<ProcMap> getAllMaps(pid_t pid);
 
   /*
-   * Gets info of all maps which pathname equals name in provided maps vector
+   * Gets info of all maps with filter in /proc/[pid]/maps
    */
-  std::vector<ProcMap> getMapsEqual(const std::vector<ProcMap>& maps, const std::string& name);
-  /*
-   * Gets info of all maps which pathname equals name in /proc/[pid]/maps
-   */
-  std::vector<ProcMap> getMapsEqual(pid_t pid, const std::string &name);
+  std::vector<ProcMap> getMaps(pid_t pid, EProcMapFilter filter, const std::string &name,
+                               const std::vector<ProcMap> &maps = std::vector<ProcMap>());
 
-  /*
-   * Gets info of all maps which pathname contains name in provided maps vector
-   */
-  std::vector<ProcMap> getMapsContain(const std::vector<ProcMap>& maps, const std::string& name);
-  /*
-   * Gets info of all maps which pathname contains name in /proc/[pid]/maps
-   */
-  std::vector<ProcMap> getMapsContain(pid_t pid, const std::string &name);
-
-  /*
-   * Gets info of all maps which pathname ends with name in provided maps vector
-   */
-  std::vector<ProcMap> getMapsEndWith(const std::vector<ProcMap>& maps, const std::string& name);
-  /*
-   * Gets info of all maps which pathname ends with name in /proc/[pid]/maps
-   */
-  std::vector<ProcMap> getMapsEndWith(pid_t pid, const std::string &name);
-
-  /*
-   * Gets map info of an address in provided maps vector
-   */
-  ProcMap getAddressMap(const std::vector<ProcMap>& maps, uintptr_t address);
   /*
    * Gets map info of an address in /proc/[pid]/maps
    */
-  ProcMap getAddressMap(pid_t pid, uintptr_t address);
+  ProcMap getAddressMap(pid_t pid, uintptr_t address, const std::vector<ProcMap> &maps = std::vector<ProcMap>());
 
-  #ifdef __ANDROID__
+#ifdef __ANDROID__
     std::string getAppDirectory(const std::string &pkg);
   #endif
 }

@@ -25,7 +25,7 @@ namespace KittyMemoryEx
         return cmdline;
     }
 
-    std::vector<pid_t> getPIDsOf(const std::string &processName)
+    std::vector<pid_t> getProcessIDs(const std::string &processName)
     {
         std::vector<pid_t> pids;
 
@@ -189,78 +189,51 @@ namespace KittyMemoryEx
         return retMaps;
     }
 
-    std::vector<ProcMap> getMapsEqual(const std::vector<ProcMap>& maps, const std::string& name)
+    std::vector<ProcMap> getMaps(pid_t pid, EProcMapFilter filter, const std::string &name,
+                                 const std::vector<ProcMap> &maps)
     {
         std::vector<ProcMap> retMaps;
 
-        if (maps.empty() || name.empty())
-            return retMaps;
-
-        for (auto &it : maps)
-            if (it.isValid() && !it.isUnknown() && it.pathname == name)
-                retMaps.push_back(it);
+        for (auto &it : (maps.empty() ? getAllMaps(pid) : maps))
+        {
+            if (it.isValid())
+            {
+                switch (filter)
+                {
+                case EProcMapFilter::Equal:
+                    if (it.pathname == name)
+                        retMaps.push_back(it);
+                    break;
+                case EProcMapFilter::StartWith:
+                    if (KittyUtils::String::StartsWith(it.pathname, name))
+                        retMaps.push_back(it);
+                    break;
+                case EProcMapFilter::EndWith:
+                    if (KittyUtils::String::EndsWith(it.pathname, name))
+                        retMaps.push_back(it);
+                    break;
+                case EProcMapFilter::Contains:
+                default:
+                    if (KittyUtils::String::Contains(it.pathname, name))
+                        retMaps.push_back(it);
+                    break;
+                }
+            }
+        }
 
         return retMaps;
     }
 
-    std::vector<ProcMap> getMapsEqual(pid_t pid, const std::string& name)
+    ProcMap getAddressMap(pid_t pid, uintptr_t address, const std::vector<ProcMap> &maps)
     {
-        return getMapsEqual(getAllMaps(pid), name);
-    }
-
-    std::vector<ProcMap> getMapsContain(const std::vector<ProcMap>& maps, const std::string& name)
-    {
-        std::vector<ProcMap> retMaps;
-
-        if (maps.empty() || name.empty())
-            return retMaps;
-
-        for (auto &it : maps)
-            if (it.isValid() && !it.isUnknown() && KittyUtils::String::Contains(it.pathname, name))
-                retMaps.push_back(it);
-
-        return retMaps;
-    }
-
-    std::vector<ProcMap> getMapsContain(pid_t pid, const std::string& name)
-    {
-        return getMapsContain(getAllMaps(pid), name);
-    }
-
-    std::vector<ProcMap> getMapsEndWith(const std::vector<ProcMap>& maps, const std::string& name)
-    {
-        std::vector<ProcMap> retMaps;
-
-        if (maps.empty() || name.empty())
-            return retMaps;
-
-        for (auto &it : maps)
-            if (it.isValid() && !it.isUnknown() && KittyUtils::String::EndsWith(it.pathname, name))
-                retMaps.push_back(it);
-
-        return retMaps;
-    }
-
-    std::vector<ProcMap> getMapsEndWith(pid_t pid, const std::string& name)
-    {
-        return getMapsEndWith(getAllMaps(pid), name);
-    }
-
-    ProcMap getAddressMap(const std::vector<ProcMap>& maps, uintptr_t address)
-    {
-        if (maps.empty() || !address)
+        if (!address)
             return {};
 
-        for (auto &it : maps)
+        for (auto &it : (maps.empty() ? getAllMaps(pid) : maps))
             if (it.isValid() && it.contains(address))
                 return it;
 
         return {};
-    }
-
-    ProcMap getAddressMap(pid_t pid, uintptr_t address)
-    {
-        return getAddressMap(getAllMaps(pid), address);
     }
 
 #ifdef __ANDROID__

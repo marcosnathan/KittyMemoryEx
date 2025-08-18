@@ -10,6 +10,10 @@ KittyMemoryMgr kittyMemMgr;
 
 int main(int argc, char *args[])
 {
+    setbuf(stdout, nullptr);
+    setbuf(stderr, nullptr);
+    setbuf(stdin, nullptr);
+
     // ./exe [target process name]
     if (argc < 2)
     {
@@ -37,22 +41,88 @@ int main(int argc, char *args[])
     }
 
     KITTY_LOGI("================ GET ELF BASE ===============");
-    
+
     ElfScanner g_il2cppElf{};
     // loop until our target library is found
     do
     {
         sleep(1);
+        // findElf can find libs in split apk too
+        g_il2cppElf = kittyMemMgr.elfScanner.findElf("libil2cpp.so");
+        // use filter
+        g_il2cppElf = kittyMemMgr.elfScanner.findElf("libil2cpp.so", EScanElfType::Any, EScanElfFilter::App);
 
-        // get loaded elf & can find libs from split apk or zip
-        g_il2cppElf = kittyMemMgr.findMemElf("libil2cpp.so");
+        // find via linker or native bridge solist
+        auto nativeSo = kittyMemMgr.linkerScanner.findSoInfo("libil2cpp.so");
+        auto emulatedSo = kittyMemMgr.nbScanner.findSoInfo("libil2cpp.so");
+
+        if (nativeSo.ptr)
+        {
+            KITTY_LOGI("Found native libil2cpp.so soinfo at %p", (void *)nativeSo.ptr);
+            g_il2cppElf = kittyMemMgr.elfScanner.createWithSoInfo(nativeSo);
+        }
+        if (emulatedSo.ptr)
+        {
+            KITTY_LOGI("Found emulated libil2cpp.so soinfo at %p", (void *)emulatedSo.ptr);
+            g_il2cppElf = kittyMemMgr.elfScanner.createWithSoInfo(emulatedSo);
+        }
+
+        // incase il2cpp is renamed, you can find elf by any special symbol
+        for (auto &it : kittyMemMgr.elfScanner.findSymbolAll("il2cpp_init", EScanElfType::Any, EScanElfFilter::App))
+        {
+            // make sure it has dynamic
+            if (it.second.dynamic())
+            {
+                KITTY_LOGI("Found il2cpp_init at %p from %s", (void *)it.first, it.second.realPath().c_str());
+                g_il2cppElf = it.second;
+                break;
+            }
+        }
+
     } while (!g_il2cppElf.isValid());
-    
-    uintptr_t il2cppBase = g_il2cppElf.base();
-    KITTY_LOGI("libil2cpp.so base: %p", (void *)il2cppBase);
 
-    
+    KITTY_LOGI("il2cpp filePath: %s", g_il2cppElf.filePath().c_str());
+    KITTY_LOGI("il2cpp realPath: %s", g_il2cppElf.realPath().c_str());
+    KITTY_LOGI("il2cpp base: %p", (void *)(g_il2cppElf.base()));
+    KITTY_LOGI("il2cpp load_bias: %p", (void *)(g_il2cppElf.loadBias()));
+    KITTY_LOGI("il2cpp load_size: %p", (void *)(g_il2cppElf.loadSize()));
+    KITTY_LOGI("il2cpp end: %p", (void *)(g_il2cppElf.end()));
+    KITTY_LOGI("il2cpp phdr: %p", (void *)(g_il2cppElf.phdr()));
+    KITTY_LOGI("il2cpp phdrs count: %d", int(g_il2cppElf.programHeaders().size()));
+    KITTY_LOGI("il2cpp dynamic: %p", (void *)(g_il2cppElf.dynamic()));
+    KITTY_LOGI("il2cpp dynamics count: %d", int(g_il2cppElf.dynamics().size()));
+    KITTY_LOGI("il2cpp strtab: %p", (void *)(g_il2cppElf.stringTable()));
+    KITTY_LOGI("il2cpp symtab: %p", (void *)(g_il2cppElf.symbolTable()));
+    KITTY_LOGI("il2cpp segments count: %d", int(g_il2cppElf.segments().size()));
+    KITTY_LOGI("il2cpp inZip: %d", g_il2cppElf.isZipped() ? 1 : 0);
+    KITTY_LOGI("il2cpp isNative: %d", kittyMemMgr.elfScanner.isElfNative(g_il2cppElf) ? 1 : 0);
+    KITTY_LOGI("il2cpp isEmulated: %d", kittyMemMgr.elfScanner.isElfEmulated(g_il2cppElf) ? 1 : 0);
+
+    KITTY_LOGI("==================== SYMBOL LOOKUP ===================");
+
+    KITTY_LOGI("il2cpp_init = %p", (void *)g_il2cppElf.findSymbol("il2cpp_init"));
+    KITTY_LOGI("il2cpp_string_new = %p", (void *)g_il2cppElf.findSymbol("il2cpp_string_new"));
+
+    // symbol lookup by name in all loaded elfs
+    // auto v_eglSwapBuffers = kittyMemMgr.elfScanner.findSymbolAll("eglSwapBuffers");
+    // use filters
+    auto v_eglSwapBuffers = kittyMemMgr.elfScanner.findSymbolAll("eglSwapBuffers", EScanElfType::Any,
+                                                                 EScanElfFilter::System);
+    // scan natives only
+    // auto v_eglSwapBuffers = kittyMemMgr.elfScanner.findSymbolAll("eglSwapBuffers", EScanElfType::Native,
+    // EScanElfFilter::System); scan emulated only auto v_eglSwapBuffers =
+    // kittyMemMgr.elfScannerfindSymbolAll("eglSwapBuffers", EScanElfType::Emulated, EScanElfFilter::System);
+
+    for (auto &it : v_eglSwapBuffers)
+    {
+        // first  = symbol address
+        // second = ELF object where symbol was found
+        KITTY_LOGI("Found eglSwapBuffers at %p from %s", (void *)it.first, it.second.realPath().c_str());
+    }
+
     KITTY_LOGI("================ MEMORY READ & WRITE ===============");
+
+    uintptr_t il2cppBase = g_il2cppElf.base();
 
     // read & write memory (address, buffer, buffer_size)
     char magic[16] = {0};
@@ -64,13 +134,6 @@ int main(int argc, char *args[])
     // read & write string from memory (magic + 1) = "ELF"
     // kittyMemMgr.readMemStr(il2cppBase + 1, 3);
     // kittyMemMgr.writeMemStr(il2cppBase + 1, magic + 1, 3);
-
-
-    KITTY_LOGI("==================== SYMBOL LOOKUP ===================");
-
-    KITTY_LOGI("il2cpp elf valid = %d", g_il2cppElf.isValid() ? 1 : 0);
-    KITTY_LOGI("il2cpp_string_new = %p", (void *)g_il2cppElf.findSymbol("il2cpp_string_new"));
-
 
     KITTY_LOGI("==================== MEMORY PATCH ===================");
 
@@ -85,15 +148,19 @@ int main(int argc, char *args[])
     get_canShoot = kittyMemMgr.memPatch.createWithBytes(il2cppBase + 0x10948D4, "\x01\x00\xA0\xE3\x1E\xFF\x2F\xE1", 8);
     // hex with or without spaces both are fine
     get_canShoot = kittyMemMgr.memPatch.createWithHex(il2cppBase + 0x10948D4, "01 00 A0 E3 1E FF 2F E1");
+
+
+#ifndef kNO_KEYSTONE
     // (uses keystone assembler) insert ';' to seperate statements
-    // its recommeneded to test your instructions on https://armconverter.com or https://shell-storm.org/online/Online-Assembler-and-Disassembler/
-    // change MP_ASM_ARM64 to your targeted asm arch
+    // its recommeneded to test your instructions on https://armconverter.com or
+    // https://shell-storm.org/online/Online-Assembler-and-Disassembler/ change MP_ASM_ARM64 to your targeted asm arch
     // MP_ASM_ARM32, MP_ASM_ARM64, MP_ASM_x86, MP_ASM_x86_64
     get_canShoot = kittyMemMgr.memPatch.createWithAsm(il2cppBase + 0x10948D4, MP_ASM_ARM64, "mov x0, #1; ret");
 
     // format asm
     auto asm_fmt = KittyUtils::String::Fmt("mov x0, #%d; ret", 65536);
     get_gold = kittyMemMgr.memPatch.createWithAsm(il2cppBase + 0x10948D4, MP_ASM_ARM64, asm_fmt);
+#endif
 
     KITTY_LOGI("Patch Address: %p", (void *)get_canShoot.get_TargetAddress());
     KITTY_LOGI("Patch Size: %zu", get_canShoot.get_PatchSize());
@@ -140,21 +207,24 @@ int main(int argc, char *args[])
     uintptr_t search_start = g_il2cppElf.baseSegment().startAddress;
     uintptr_t search_end = g_il2cppElf.baseSegment().endAddress;
 
-    KITTY_LOGI("search start %p", (void*)search_start);
-    KITTY_LOGI("search end %p", (void*)search_end);
+    KITTY_LOGI("search start %p", (void *)search_start);
+    KITTY_LOGI("search end %p", (void *)search_end);
 
     // scan with direct bytes & get one result
-    found_at = kittyMemMgr.memScanner.findBytesFirst(search_start, search_end, "\x33\x44\x55\x66\x00\x77\x88\x00\x99", "xxxx??x?x");
+    found_at = kittyMemMgr.memScanner.findBytesFirst(search_start, search_end, "\x33\x44\x55\x66\x00\x77\x88\x00\x99",
+                                                     "xxxx??x?x");
     KITTY_LOGI("found bytes at: %p", (void *)found_at);
     // scan with direct bytes & get all results
-    found_at_list = kittyMemMgr.memScanner.findBytesAll(search_start, search_end, "\x33\x44\x55\x66\x00\x77\x88\x00\x99", "xxxx??x?x");
+    found_at_list = kittyMemMgr.memScanner.findBytesAll(search_start, search_end,
+                                                        "\x33\x44\x55\x66\x00\x77\x88\x00\x99", "xxxx??x?x");
     KITTY_LOGI("found bytes results: %zu", found_at_list.size());
 
     // scan with hex & get one result
     found_at = kittyMemMgr.memScanner.findHexFirst(search_start, search_end, "33 44 55 66 00 77 88 00 99", "xxxx??x?x");
     KITTY_LOGI("found hex at: %p", (void *)found_at);
     // scan with hex & get all results
-    found_at_list = kittyMemMgr.memScanner.findHexAll(search_start, search_end, "33 44 55 66 00 77 88 00 99", "xxxx??x?x");
+    found_at_list = kittyMemMgr.memScanner.findHexAll(search_start, search_end, "33 44 55 66 00 77 88 00 99",
+                                                      "xxxx??x?x");
     KITTY_LOGI("found hex results: %zu", found_at_list.size());
 
     // scan with ida pattern & get one result
@@ -184,6 +254,20 @@ int main(int argc, char *args[])
     KITTY_LOGI("\n%s", KittyUtils::HexDump<16, false>(magic, sizeof(magic)).c_str());
 
 
+    KITTY_LOGI("===================== ELFS SCAN ====================");
+
+    // gret all elfs
+    const auto elfs = kittyMemMgr.elfScanner.getAllELFs();
+    // get app related elfs
+    // const auto elfs = kittyMemMgr.elfScanner.getAllELFs(EScanElfType::Any, EScanElfFilter::App);
+    // get emulated system elfs on emulator
+    // const auto elfs = kittyMemMgr.elfScanner.getAllELFs(EScanElfType::Emulated, EScanElfFilter::System);
+
+    for (const auto &it : elfs)
+    {
+        KITTY_LOGI("elfs(%p) -> %s", (void *)it.base(), it.realPath().c_str());
+    }
+
     KITTY_LOGI("================= PTRACE REMOTE CALL ===============");
 
     // check tracer
@@ -199,19 +283,19 @@ int main(int argc, char *args[])
         KITTY_LOGE("Failed to attach.");
         return 1;
     }
-    
-    uintptr_t remote_mmap = kittyMemMgr.findRemoteOfSymbol(KT_LOCAL_SYMBOL(mmap));
-    uintptr_t remote_munmap = kittyMemMgr.findRemoteOfSymbol(KT_LOCAL_SYMBOL(munmap));
 
-    KITTY_LOGI("libc [ remote_mmap = %p | remote_munmap = %p ]", (void*)remote_mmap, (void*)remote_munmap);
+    uintptr_t remote_mmap = kittyMemMgr.elfScanner.findRemoteSymbol("mmap", uintptr_t(mmap));
+    uintptr_t remote_munmap = kittyMemMgr.elfScanner.findRemoteSymbol("munmap", uintptr_t(munmap));
+
+    KITTY_LOGI("libc [ remote_mmap = %p | remote_munmap = %p ]", (void *)remote_mmap, (void *)remote_munmap);
 
     // mmap(nullptr, KT_PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    uintptr_t mmap_ret = kittyMemMgr.trace.callFunction(remote_mmap, 6,
-                                                    nullptr, KT_PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    uintptr_t mmap_ret = kittyMemMgr.trace.callFunction(remote_mmap, 6, nullptr, KT_PAGE_SIZE, PROT_READ | PROT_WRITE,
+                                                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     // munmap(mmap_ret, KT_PAGE_SIZE);
     uintptr_t munmap_ret = kittyMemMgr.trace.callFunction(remote_munmap, 2, mmap_ret, KT_PAGE_SIZE);
 
-    KITTY_LOGI("Remote call [ mmap_ret=%p | munmap_ret=%p ]", (void*)mmap_ret, (void*)munmap_ret);
+    KITTY_LOGI("Remote call [ mmap_ret=%p | munmap_ret=%p ]", (void *)mmap_ret, (void *)munmap_ret);
 
     kittyMemMgr.trace.Detach();
 
