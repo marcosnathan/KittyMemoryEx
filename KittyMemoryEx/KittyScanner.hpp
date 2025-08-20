@@ -137,6 +137,7 @@ struct kitty_soinfo_t
     size_t strsz = 0;
     uintptr_t bias = 0;
     uintptr_t next = 0;
+    uint16_t e_machine = 0;
     std::string path;
     std::string realpath;
 };
@@ -174,7 +175,7 @@ protected:
     std::vector<KT_ElfW(Dyn)> _dynamics;
     uintptr_t _stringTable, _symbolTable;
     size_t _strsz, _syment;
-    bool _headerless;
+    bool _fixedBySoInfo;
     KittyMemoryEx::ProcMap _baseSegment;
     std::vector<KittyMemoryEx::ProcMap> _segments;
     std::vector<KittyMemoryEx::ProcMap> _bssSegments;
@@ -188,7 +189,7 @@ protected:
 public:
     ElfScanner()
         : _pMem(nullptr), _elfBase(0), _phdr(0), _loads(0), _loadBias(0), _loadSize(0), _dynamic(0), _stringTable(0),
-          _symbolTable(0), _strsz(0), _syment(0), _headerless(false), _symbols_init(false), _dsymbols_init(false)
+          _symbolTable(0), _strsz(0), _syment(0), _fixedBySoInfo(false), _symbols_init(false), _dsymbols_init(false)
     {
     }
 
@@ -213,9 +214,9 @@ public:
         return _elfBase && _loadSize && _phdr && _loadBias;
     }
 
-    inline bool isHeaderless() const
+    inline bool isFixedBySoInfo() const
     {
-        return _headerless;
+        return _fixedBySoInfo;
     }
 
     inline uintptr_t base() const
@@ -566,7 +567,7 @@ private:
     IKittyMemOp *_pMem;
     KittyScannerMgr *_memScanner;
     ElfScannerMgr *_elfScanner;
-    ElfScanner _nb, _nbImpl;
+    ElfScanner _nbElf, _nbImplElf, _sodlElf;
     uintptr_t _sodl;
     struct
     {

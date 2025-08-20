@@ -173,5 +173,15 @@ bool KittyMemoryMgr::dumpMemELF(const ElfScanner &elf, const std::string &destin
     if (!isMemValid() || !elf.base() || !elf.loadSize())
         return false;
 
-    return dumpMemRange(elf.base(), elf.end(), destination);
+    bool dumped = dumpMemRange(elf.base(), elf.end(), destination);
+    if (dumped && elf.isFixedBySoInfo())
+    {
+        KittyIOFile destIO(destination, O_WRONLY);
+        destIO.Open();
+        KT_ElfW(Ehdr) fixedHdr = elf.header();
+        destIO.Write(0, &fixedHdr, sizeof(fixedHdr));
+        destIO.Close();
+    }
+
+    return dumped;
 }
