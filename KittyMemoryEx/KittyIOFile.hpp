@@ -41,6 +41,9 @@ public:
     inline int Flags() const { return _flags; }
     inline mode_t Mode() const { return _mode; }
 
+    ssize_t Read(void *buffer, size_t len);
+    ssize_t Write(const void *buffer, size_t len);
+
     ssize_t Read(uintptr_t offset, void *buffer, size_t len);
     ssize_t Write(uintptr_t offset, const void *buffer, size_t len);
 

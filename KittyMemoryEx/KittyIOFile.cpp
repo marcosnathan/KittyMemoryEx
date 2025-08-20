@@ -30,6 +30,46 @@ bool KittyIOFile::Close()
     return rt;
 }
 
+ssize_t KittyIOFile::Read(void *buffer, size_t len)
+{
+    char *buf = (char *)buffer;
+    size_t bytesRead = 0;
+    do
+    {
+        errno = 0, _error = 0;
+        ssize_t readSize = KT_EINTR_RETRY(read(_fd, buf + bytesRead, len - bytesRead));
+        if (readSize <= 0)
+        {
+            if (readSize < 0)
+                _error = errno;
+            break;
+        }
+
+        bytesRead += readSize;
+    } while (bytesRead < len);
+    return bytesRead;
+}
+
+ssize_t KittyIOFile::Write(const void *buffer, size_t len)
+{
+    const char *buf = (const char *)buffer;
+    size_t bytesWritten = 0;
+    do
+    {
+        errno = 0, _error = 0;
+        ssize_t writeSize = KT_EINTR_RETRY(write(_fd, buf + bytesWritten, len - bytesWritten));
+        if (writeSize <= 0)
+        {
+            if (writeSize < 0)
+                _error = errno;
+            break;
+        }
+
+        bytesWritten += writeSize;
+    } while (bytesWritten < len);
+    return bytesWritten;
+}
+
 ssize_t KittyIOFile::Read(uintptr_t offset, void *buffer, size_t len)
 {
     char *buf = (char *)buffer;
