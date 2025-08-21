@@ -70,16 +70,16 @@ bool KittyMemoryMgr::initialize(pid_t pid, EKittyMemOP eMemOp, bool initMemPatch
 
 #ifdef __ANDROID__
 #ifdef __LP64__
-    linkerScanner = LinkerScannerMgr(_pMemOp.get(), elfScanner.findElf("/linker64"));
+    linkerScanner = LinkerScannerMgr(_pMemOp.get(), elfScanner.findElf("/linker64", EScanElfType::Native, EScanElfFilter::System));
 #else
-    linkerScanner = LinkerScannerMgr(_pMemOp.get(), elfScanner.findElf("/linker"));
+    linkerScanner = LinkerScannerMgr(_pMemOp.get(), elfScanner.findElf("/linker", EScanElfType::Native, EScanElfFilter::System));
 #endif
     nbScanner = NativeBridgeScannerMgr(_pMemOp.get(), &memScanner, &elfScanner);
 #endif
 
 #ifdef __ANDROID__
     // refs https://fadeevab.com/shared-library-injection-on-android-8/
-    uintptr_t defaultCaller = elfScanner.findElf("/libRS.so").base();
+    uintptr_t defaultCaller = elfScanner.findElf("/libRS.so", EScanElfType::Native, EScanElfFilter::System).base();
 #else
     uintptr_t defaultCaller = 0;
 #endif
