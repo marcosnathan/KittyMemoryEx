@@ -1665,11 +1665,14 @@ bool NativeBridgeScannerMgr::init()
 
     struct
     {
-        uintptr_t base = 0;
-        size_t size = 0;
-    } data = {_sodlElf.phdr(), _sodlElf.programHeaders().size()};
+        uintptr_t phdr = 0;
+        size_t phnum = 0;
+    } data;
+	
+    data.phdr = _sodlElf.phdr();
+    data.phnum = _sodlElf.programHeaders().size();
 
-    KITTY_LOGD("NativeBridgeScanner: sodl phdr { %p, %zu }", (void *)_sodlElf.phdr(), _sodlElf.programHeaders().size());
+    KITTY_LOGD("NativeBridgeScanner: sodl phdr { %p, %zu }", (void *)(data.phdr), data.phnum);
 
     auto maps = KittyMemoryEx::getAllMaps(_pMem->processID());
 
