@@ -530,6 +530,7 @@ ElfScanner::ElfScanner(IKittyMemOp *pMem, const kitty_soinfo_t &soinfo, const st
             "ElfScanner: elfBase: %p | bias: %p | phdr: %p | dyn: %p | strtab=%p | symtab=%p | strsz=%p | syment=%p",
             (void *)_elfBase, (void *)_loadBias, (void *)_phdr, (void *)_dynamic, (void *)_stringTable,
             (void *)_symbolTable, (void *)_strsz, (void *)_syment);
+        *this = ElfScanner();
         return;
     }
 
@@ -550,6 +551,7 @@ ElfScanner::ElfScanner(IKittyMemOp *pMem, const kitty_soinfo_t &soinfo, const st
     if (!elfBaseMap.isValid() || !elfBaseMap.readable || _elfBase != elfBaseMap.startAddress)
     {
         KITTY_LOGD("ElfScanner: Invalid base(%p) for soinfo(%p)", (void *)_elfBase, (void *)soinfo.ptr);
+        *this = ElfScanner();
         return;
     }
 
@@ -606,6 +608,7 @@ ElfScanner::ElfScanner(IKittyMemOp *pMem, const kitty_soinfo_t &soinfo, const st
         (_loadSize && phdrMap.endAddress > (_elfBase + _loadSize)))
     {
         KITTY_LOGD("ElfScanner: Invalid phdr(%p) for soinfo(%p).", (void *)_phdr, (void *)soinfo.ptr);
+        *this = ElfScanner();
         return;
     }
 
@@ -614,16 +617,18 @@ ElfScanner::ElfScanner(IKittyMemOp *pMem, const kitty_soinfo_t &soinfo, const st
         auto dynMap = KittyMemoryEx::getAddressMap(_pMem->processID(), _dynamic, maps);
         if (!(dynMap.readable && dynMap.startAddress >= _elfBase && dynMap.endAddress <= (_elfBase + _loadSize)))
         {
-            KITTY_LOGD("ElfScanner: Invalid dyn(%p) for soinfo(%p).", (void *)_phdr, (void *)soinfo.ptr);
+            KITTY_LOGD("ElfScanner: Invalid dyn(%p) for soinfo(%p).", (void *)_dynamic, (void *)soinfo.ptr);
+            *this = ElfScanner();
             return;
         }
+    }
 
-        auto biasMap = KittyMemoryEx::getAddressMap(_pMem->processID(), _loadBias, maps);
-        if (!(biasMap.readable && biasMap.startAddress >= _elfBase && biasMap.endAddress <= (_elfBase + _loadSize)))
-        {
-            KITTY_LOGD("ElfScanner: Invalid bias(%p) for soinfo(%p).", (void *)_phdr, (void *)soinfo.ptr);
-            return;
-        }
+    // fix for ldplayer
+    auto biasMap = KittyMemoryEx::getAddressMap(_pMem->processID(), _loadBias, maps);
+    if (!(biasMap.readable && biasMap.startAddress >= _elfBase && biasMap.endAddress <= (_elfBase + _loadSize)))
+    {
+        KITTY_LOGD("ElfScanner: Invalid bias(%p) for soinfo(%p).", (void *)_loadBias, (void *)soinfo.ptr);
+        _loadBias = 0;
     }
 
     // read all program headers
@@ -661,12 +666,14 @@ ElfScanner::ElfScanner(IKittyMemOp *pMem, const kitty_soinfo_t &soinfo, const st
     if (!_loads)
     {
         KITTY_LOGE("ElfScanner: No loads entry for ELF (%p).", (void *)_elfBase);
+        *this = ElfScanner();
         return;
     }
 
     if (!max_vaddr)
     {
         KITTY_LOGE("ElfScanner: Failed to find load size for ELF (%p).", (void *)_elfBase);
+        *this = ElfScanner();
         return;
     }
 
