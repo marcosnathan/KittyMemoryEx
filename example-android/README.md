@@ -2,7 +2,7 @@
 
 <h3>This is an Android executable example.</h3>
 
-Requires C++11 or above.</br>
+Requires C++17 or above.</br>
 Android API 21 or above for keystone linking.
 
 See how to use KittyMemoryEx in [example.cpp](example.cpp).
