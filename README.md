@@ -17,8 +17,8 @@ If for any reason you don't want to use Keystone and MemoryPatch::createWithAsm 
 - Two types of remote memory read & write (IO and Syscall)
 - Memory patch (bytes, hex and asm)
 - Memory scan
-- Find ELF base
+- ELF scanner
 - ELF symbol lookup
 - ptrace utilities (linker namespace bypass for remote call)
 - Memory dump
-- Linker & NativeBridge Scanner for android
+- Linker & NativeBridge scanner for android
