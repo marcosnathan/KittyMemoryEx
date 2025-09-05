@@ -7,24 +7,25 @@ namespace KittyMemoryEx
   class ProcMap
   {
   public:
-    pid_t pid;
-    unsigned long long startAddress;
-    unsigned long long endAddress;
-    size_t length;
-    int protection;
-    bool readable, writeable, executable;
-    bool is_private, is_shared;
-    bool is_ro, is_rw, is_rx;
-    unsigned long long offset;
-    std::string dev;
-    unsigned long inode;
-    std::string pathname;
+      pid_t pid;
+      uintptr_t startAddress;
+      uintptr_t endAddress;
+      size_t length;
+      int protection;
+      bool readable, writeable, executable;
+      bool is_private, is_shared;
+      bool is_ro, is_rw, is_rx;
+      uintptr_t offset;
+      std::string dev;
+      unsigned long inode;
+      std::string pathname;
 
-    ProcMap() : pid(0), startAddress(0), endAddress(0), length(0), protection(0),
-                readable(false), writeable(false), executable(false),
-                is_private(false), is_shared(false),
-                is_ro(false), is_rw(false), is_rx(false),
-                offset(0), inode(0) {}
+      ProcMap()
+          : pid(0), startAddress(0), endAddress(0), length(0), protection(0), readable(false), writeable(false),
+            executable(false), is_private(false), is_shared(false), is_ro(false), is_rw(false), is_rx(false), offset(0),
+            inode(0)
+      {
+      }
 
     inline bool operator==(const ProcMap& other) const 
     {
@@ -49,10 +50,9 @@ namespace KittyMemoryEx
     inline bool contains(uintptr_t address) const { return address >= startAddress && address < endAddress; }
     inline std::string toString() const
     {
-        return KittyUtils::String::Fmt("%llx-%llx %c%c%c%c %llx %s %lu %s",
-            startAddress, endAddress,
-            readable ? 'r' : '-', writeable ? 'w' : '-', executable ? 'x' : '-', is_private ? 'p' : 's',
-            offset, dev.c_str(), inode, pathname.c_str());
+        return KittyUtils::String::Fmt("%" PRIxPTR "-%" PRIxPTR " %c%c%c%c %" PRIxPTR " %s %lu %s", startAddress,
+                                       endAddress, readable ? 'r' : '-', writeable ? 'w' : '-', executable ? 'x' : '-',
+                                       is_private ? 'p' : 's', offset, dev.c_str(), inode, pathname.c_str());
     }
   };
 

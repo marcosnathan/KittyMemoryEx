@@ -146,8 +146,7 @@ namespace KittyMemoryEx
             char perms[5] = {0}, dev[11] = {0}, pathname[256] = {0};
             // parse a line in maps file
             // (format) startAddress-endAddress perms offset dev inode pathname
-            sscanf(line, "%llx-%llx %s %llx %s %lu %s", 
-                   &map.startAddress, &map.endAddress,
+            sscanf(line, "%" SCNxPTR "-%" SCNxPTR " %4s %" SCNxPTR " %s %lu %s", &map.startAddress, &map.endAddress,
                    perms, &map.offset, dev, &map.inode, pathname);
 
             map.length = map.endAddress - map.startAddress;
