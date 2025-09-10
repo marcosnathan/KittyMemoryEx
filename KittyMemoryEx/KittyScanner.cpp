@@ -1483,8 +1483,7 @@ kitty_soinfo_t LinkerScannerMgr::infoFromSoInfo_(uintptr_t si, const std::vector
     if (!_pMem || !isValid() || !_init)
         return info;
 
-    thread_local static std::vector<char> si_buf(KT_SOINFO_BUFFER_SZ);
-    memset(si_buf.data(), 0, si_buf.size());
+    std::vector<char> si_buf(KT_SOINFO_BUFFER_SZ, 0);
     if (!_pMem->Read(si, si_buf.data(), KT_SOINFO_BUFFER_SZ))
         return info;
 
@@ -1837,8 +1836,7 @@ kitty_soinfo_t NativeBridgeScannerMgr::infoFromSoInfo_(uintptr_t si,
     if (!_pMem || !_init)
         return info;
 
-    thread_local static std::vector<char> si_buf(KT_SOINFO_BUFFER_SZ);
-    memset(si_buf.data(), 0, si_buf.size());
+    std::vector<char> si_buf(KT_SOINFO_BUFFER_SZ, 0);
     if (!_pMem->Read(si, si_buf.data(), KT_SOINFO_BUFFER_SZ))
         return info;
 
