@@ -999,6 +999,9 @@ ElfScanner &ElfScannerMgr::getProgramElf()
                                                  allMaps);
         for (const auto &it : maps)
         {
+            if (!it.readable || it.writeable)
+                continue;
+
             _programElf = ElfScanner(_pMem, it.startAddress, allMaps);
             if (_programElf.isValid() && _programElf.dynamic())
                 break;
